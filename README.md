@@ -37,9 +37,11 @@ View your app in AI Studio: https://ai.studio/apps/977ac06c-1504-4a1a-91f1-9092c
 - Configure your preferred AI provider in `.env.local`
 
 ### 🌐 Web Integration
-- **"Get Started" Button**: Opens the Dcalls web app for quick onboarding
-- **"Download" Button**: Shows platform-specific downloads for Windows, iOS, and Android
-- **Help Center**: Accessible from Settings → Help to access support documentation
+- **Marketing site** (`Dcalls web/`): Landing at `/welcome.html` — "Get Started" opens the React app
+- **React app** (`npm run dev`): Main product at `http://localhost:3000`
+- **URLs**: Configure `VITE_APP_URL`, `VITE_MARKETING_URL`, `VITE_HELP_URL` in `.env.local` (see `.env.local.example`)
+- **Build**: `npm run build` syncs marketing pages into `dist/` for Firebase Hosting
+- **Help Center**: Settings → Help, or `/help.html`
 
 ## AI Providers Priority
 

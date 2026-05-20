@@ -32,6 +32,7 @@ function cn(...inputs: ClassValue[]) {
 import { authService, UnifiedUser } from './services/authService';
 import { DcallsIcon } from './components/DcallsIcon';
 import { lookupUidByPhone } from './services/contactService';
+import { openMarketing } from './config/urls';
 
 export default function App() {
   const [user, setUser] = useState<UnifiedUser | null>(null);
@@ -374,9 +375,13 @@ export default function App() {
           )}
         </AnimatePresence>
 
-        <div className="absolute bottom-12 text-[10px] text-gray-600 font-bold uppercase tracking-[0.5em] z-10">
-          Secure • Encrypted • AI-Enhanced
-        </div>
+        <button
+          type="button"
+          onClick={() => openMarketing()}
+          className="absolute bottom-12 text-[10px] text-gray-500 font-bold uppercase tracking-[0.35em] z-10 hover:text-purple-400 transition-colors"
+        >
+          Learn more at Dcalls.com
+        </button>
       </div>
     );
   }

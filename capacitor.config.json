@@ -2,5 +2,9 @@
   "appId": "com.dcalls.app",
   "appName": "Dcalls",
   "webDir": "dist",
-  "bundledWebRuntime": false
+  "bundledWebRuntime": false,
+  "server": {
+    "androidScheme": "https",
+    "cleartext": true
+  }
 }

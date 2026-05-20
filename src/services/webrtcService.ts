@@ -21,8 +21,11 @@ const turnUrl = import.meta.env.VITE_TURN_URL;
 const turnUsername = import.meta.env.VITE_TURN_USERNAME;
 const turnCredential = import.meta.env.VITE_TURN_CREDENTIAL;
 if (turnUrl && turnUsername && turnCredential) {
+  const normalizedTurn = turnUrl.startsWith('turn:') || turnUrl.startsWith('turns:')
+    ? turnUrl
+    : `turn:${turnUrl}`;
   iceServers.push({
-    urls: turnUrl,
+    urls: normalizedTurn,
     username: turnUsername,
     credential: turnCredential,
   });

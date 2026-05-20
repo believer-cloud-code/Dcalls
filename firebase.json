@@ -16,11 +16,25 @@
     }
   },
   "hosting": {
-    "public": "public",
+    "public": "dist",
     "ignore": [
       "firebase.json",
       "**/.*",
       "**/node_modules/**"
+    ],
+    "rewrites": [
+      { "source": "/welcome.html", "destination": "/welcome.html" },
+      { "source": "/help.html", "destination": "/help.html" },
+      { "source": "/damai.html", "destination": "/damai.html" },
+      { "source": "/teams.html", "destination": "/teams.html" },
+      { "source": "/dcalls-config.js", "destination": "/dcalls-config.js" },
+      { "source": "**", "destination": "/index.html" }
+    ],
+    "headers": [
+      {
+        "source": "/dcalls-config.js",
+        "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
+      }
     ]
   },
   "database": {

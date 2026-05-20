@@ -1,12 +1,42 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
+import fs from 'fs';
 import path from 'path';
-import {defineConfig, loadEnv} from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 
-export default defineConfig(({mode}) => {
-  const env = loadEnv(mode, '.', '');
+const marketingRoot = path.resolve(__dirname, 'Dcalls web');
+const marketingRoutes: Record<string, string> = {
+  '/welcome.html': 'index.HTML',
+  '/damai.html': 'damai.HTML',
+  '/teams.html': 'teams.HTML',
+  '/help.html': 'help.HTML',
+};
+
+function dcallsMarketingPlugin() {
   return {
-    plugins: [react(), tailwindcss()],
+    name: 'dcalls-marketing',
+    configureServer(server: { middlewares: { use: Function } }) {
+      server.middlewares.use((req: { url?: string }, res: { setHeader: Function; end: Function }, next: () => void) => {
+        const url = req.url?.split('?')[0] ?? '';
+        const file = marketingRoutes[url];
+        if (file) {
+          const filePath = path.join(marketingRoot, file);
+          if (fs.existsSync(filePath)) {
+            res.setHeader('Content-Type', 'text/html; charset=utf-8');
+            res.end(fs.readFileSync(filePath));
+            return;
+          }
+        }
+        next();
+      });
+    },
+  };
+}
+
+export default defineConfig(({ mode }) => {
+  loadEnv(mode, '.', '');
+  return {
+    plugins: [react(), tailwindcss(), dcallsMarketingPlugin()],
     base: './',
 
     resolve: {

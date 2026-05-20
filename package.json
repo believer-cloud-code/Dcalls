@@ -6,7 +6,8 @@
   "main": "electron/main.cjs",
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
-    "build": "vite build",
+    "sync:web": "node scripts/sync-dcalls-web.mjs",
+    "build": "npm run sync:web && vite build",
     "preview": "vite preview",
     "clean": "rmdir /s /q dist",
     "lint": "tsc --noEmit",

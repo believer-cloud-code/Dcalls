@@ -5,6 +5,7 @@ import { DcallsIcon } from './DcallsIcon';
 import { authService, UnifiedUser } from '../services/authService';
 import { db } from '../firebase';
 import { deviceService } from '../services/deviceService';
+import { openHelp, getPrivacyUrl } from '../config/urls';
 import { doc, updateDoc } from 'firebase/firestore';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -639,7 +640,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ user }) => {
                     icon={<HelpCircle size={20} />}
                     label="Help Center"
                     desc="Get help with Dcalls features"
-                    onClick={() => window.open('/help.HTML', '_blank')}
+                    onClick={() => openHelp()}
                   />
                   <SettingItem
                     icon={<MessageSquare size={20} />}
@@ -651,7 +652,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ user }) => {
                     icon={<Shield size={20} />}
                     label="Privacy Policy"
                     desc="Read our terms and privacy policy"
-                    onClick={() => window.open('https://dcalls.com/privacy', '_blank')}
+                    onClick={() => window.open(getPrivacyUrl(), '_blank', 'noopener,noreferrer')}
                   />
                   <div className="p-4 bg-white/5 rounded-2xl border border-white/10">
                     <p className="text-[10px] text-gray-500 leading-relaxed text-center">
