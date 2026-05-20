@@ -1,0 +1,9 @@
+{
+  "name": "Dcalls",
+  "description": "A next-generation cross-platform messaging and calling app (Web, Desktop, Android) integrated with Damai AI for real-time translation and smart interactions.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone",
+    "geolocation"
+  ]
+}

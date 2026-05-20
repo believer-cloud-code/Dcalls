@@ -1,0 +1,15 @@
+node_modules/
+build/
+dist/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.local
+*.pem
+*.key
+id_rsa
+id_rsa.pub
+Dcalls_key
+Dcalls_key.pub
+.env.local

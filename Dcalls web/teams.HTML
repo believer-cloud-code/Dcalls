@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teams — Dcalls for Collaboration</title>
+    <link rel="icon" href="dcalls.ico" type="image/x-icon">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap"
+        rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://unpkg.com/aos@2.3.1/dist/aos.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/particles.js/2.0.0/particles.min.js"></script>
+    <style>
+        :root {
+            --bg-deep: #06061a;
+            --purple: #7c3aed;
+            --purple-light: #a855f7;
+            --blue-glow: #3b82f6;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--bg-deep);
+            color: #e2e8f0;
+            overflow-x: hidden;
+            line-height: 1.6;
+        }
+
+        #particles-js {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        .content-wrapper {
+            position: relative;
+            z-index: 1;
+        }
+
+        .glass-nav {
+            background: rgba(10, 10, 35, 0.75);
+            backdrop-filter: blur(25px);
+            -webkit-backdrop-filter: blur(25px);
+            border-bottom: 1px solid rgba(124, 58, 237, 0.25);
+        }
+
+        .glass-card {
+            background: rgba(20, 20, 55, 0.45);
+            backdrop-filter: blur(18px);
+            -webkit-backdrop-filter: blur(18px);
+            border: 1px solid rgba(124, 58, 237, 0.2);
+            border-radius: 20px;
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .glass-card:hover {
+            border-color: rgba(124, 58, 237, 0.5);
+            box-shadow: 0 8px 40px rgba(124, 58, 237, 0.2);
+        }
+
+        .glow-text {
+            background: linear-gradient(135deg, #a855f7, #7c3aed, #3b82f6, #06b6d4);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #7c3aed, #3b82f6);
+            color: white;
+            padding: 14px 32px;
+            border-radius: 50px;
+            font-weight: 600;
+            font-size: 1rem;
+            border: none;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn-primary:hover {
+            box-shadow: 0 8px 30px rgba(124, 58, 237, 0.5);
+            transform: translateY(-2px);
+        }
+
+        .btn-primary::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+            transition: left 0.5s;
+        }
+
+        .btn-primary:hover::before {
+            left: 100%;
+        }
+
+        .nav-link {
+            color: #94a3b8;
+            transition: color 0.3s;
+            position: relative;
+            text-decoration: none;
+        }
+
+        .nav-link:hover,
+        .nav-link.active {
+            color: #e2e8f0;
+        }
+
+        .nav-link::after {
+            content: '';
+            position: absolute;
+            bottom: -4px;
+            left: 0;
+            width: 0;
+            height: 2px;
+            background: linear-gradient(90deg, #7c3aed, #3b82f6);
+            transition: width 0.3s;
+        }
+
+        .nav-link:hover::after,
+        .nav-link.active::after {
+            width: 100%;
+        }
+
+        .mobile-menu {
+            display: none;
+        }
+
+        .mobile-menu.open {
+            display: flex;
+        }
+
+        .feature-card {
+            background: rgba(20, 20, 55, 0.3);
+            border: 1px solid rgba(124, 58, 237, 0.2);
+            border-radius: 16px;
+            padding: 24px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.35s ease;
+        }
+
+        .feature-card:hover {
+            border-color: rgba(124, 58, 237, 0.5);
+            box-shadow: 0 8px 30px rgba(124, 58, 237, 0.15);
+            transform: translateY(-4px);
+        }
+
+        .feature-icon {
+            font-size: 2.5rem;
+            margin-bottom: 12px;
+        }
+
+        .feature-card h3 {
+            font-weight: 600;
+            font-size: 1.1rem;
+            margin-bottom: 8px;
+        }
+
+        .feature-card p {
+            font-size: 0.9rem;
+            color: #94a3b8;
+        }
+
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #06061a;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: linear-gradient(180deg, #7c3aed, #3b82f6);
+            border-radius: 4px;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="particles-js"></div>
+
+    <div class="content-wrapper">
+        <!-- Navigation -->
+        <nav class="glass-nav fixed top-0 left-0 right-0 z-50 px-6 py-4">
+            <div class="max-w-7xl mx-auto flex items-center justify-between">
+                <a href="index.HTML" class="flex items-center gap-3 text-xl font-bold">
+                    <img src="logo.png" alt="Dcalls" width="36" height="36" />
+                    <span class="glow-text">Dcalls</span>
+                </a>
+                <div class="hidden md:flex items-center gap-8">
+                    <a href="index.HTML" class="nav-link text-sm font-medium">Home</a>
+                    <a href="damai.HTML" class="nav-link text-sm font-medium">Damai AI</a>
+                    <a href="teams.HTML" class="nav-link active text-sm font-medium">Teams</a>
+                    <a href="help.HTML" class="nav-link text-sm font-medium">Help Center</a>
+                </div>
+                <button id="mobileMenuBtn" class="md:hidden text-white text-2xl">☰</button>
+            </div>
+            <div id="mobileMenu"
+                class="mobile-menu fixed top-[72px] left-0 right-0 glass-nav flex-col items-center gap-6 py-8">
+                <a href="index.HTML" class="nav-link text-sm font-medium">Home</a>
+                <a href="damai.HTML" class="nav-link text-sm font-medium">Damai AI</a>
+                <a href="teams.HTML" class="nav-link active text-sm font-medium">Teams</a>
+                <a href="help.HTML" class="nav-link text-sm font-medium">Help Center</a>
+            </div>
+        </nav>
+
+        <!-- Hero Section -->
+        <section class="relative pt-32 pb-16 px-6 text-center">
+            <div class="max-w-4xl mx-auto" data-aos="fade-up">
+                <h1 class="text-4xl md:text-5xl font-extrabold mb-6">Collaborate Seamlessly with <span
+                        class="glow-text">Dcalls Teams</span></h1>
+                <p class="text-slate-400 text-lg mb-10">Bring your team together with crystal-clear calls, real-time
+                    collaboration, and intelligent AI-powered insights.</p>
+                <button onclick="document.getElementById('features').scrollIntoView({behavior:'smooth'})"
+                    class="btn-primary text-lg">Explore Features</button>
+            </div>
+        </section>
+
+        <!-- Features Grid -->
+        <section class="py-16 px-6 relative" id="features">
+            <div class="max-w-6xl mx-auto">
+                <h2 class="text-3xl font-bold text-center mb-12">
+                    Why Teams Choose <span class="glow-text">Dcalls</span>
+                </h2>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+                    <div class="feature-card" data-aos="fade-up">
+                        <div class="feature-icon">📞</div>
+                        <h3>Crystal-Clear Calls</h3>
+                        <p>HD voice and 4K video calls optimized for team meetings. Adaptive quality ensures reliability
+                            on any connection.</p>
+                    </div>
+
+                    <div class="feature-card" data-aos="fade-up" data-aos-delay="100">
+                        <div class="feature-icon">🤖</div>
+                        <h3>Damai AI Intelligence</h3>
+                        <p>Real-time translation, automatic transcription, and meeting summaries. Damai captures key
+                            decisions and action items.</p>
+                    </div>
+
+                    <div class="feature-card" data-aos="fade-up" data-aos-delay="200">
+                        <div class="feature-icon">🔒</div>
+                        <h3>Enterprise Security</h3>
+                        <p>End-to-end encryption for all communications. Your data stays private and secure with
+                            industry-leading standards.</p>
+                    </div>
+
+                    <div class="feature-card" data-aos="fade-up" data-aos-delay="300">
+                        <div class="feature-icon">👥</div>
+                        <h3>Team Management</h3>
+                        <p>Organize your team with channels, groups, and roles. Control access and manage team members
+                            effortlessly.</p>
+                    </div>
+
+                    <div class="feature-card" data-aos="fade-up" data-aos-delay="400">
+                        <div class="feature-icon">⏰</div>
+                        <h3>Smart Scheduling</h3>
+                        <p>Damai coordinates across time zones and integrates with your calendar. Never miss a team
+                            meeting again.</p>
+                    </div>
+
+                    <div class="feature-card" data-aos="fade-up" data-aos-delay="500">
+                        <div class="feature-icon">📊</div>
+                        <h3>Analytics & Insights</h3>
+                        <p>Track team engagement, call quality metrics, and productivity insights. Make data-driven
+                            decisions.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Use Cases Section -->
+        <section class="py-16 px-6 relative">
+            <div class="max-w-5xl mx-auto">
+                <h2 class="text-3xl font-bold text-center mb-12">
+                    Built for Every <span class="glow-text">Team</span>
+                </h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div class="glass-card p-8" data-aos="fade-up">
+                        <h3 class="text-xl font-semibold mb-3">🏢 Remote Teams</h3>
+                        <p class="text-slate-400">Keep distributed teams connected across continents with reliable
+                            video calls, group chat, and Damai-powered collaboration tools.</p>
+                    </div>
+
+                    <div class="glass-card p-8" data-aos="fade-up" data-aos-delay="100">
+                        <h3 class="text-xl font-semibold mb-3">🎓 Education</h3>
+                        <p class="text-slate-400">Universities and schools use Dcalls Teams for lectures, group
+                            projects, and virtual classrooms with real-time translation.</p>
+                    </div>
+
+                    <div class="glass-card p-8" data-aos="fade-up" data-aos-delay="200">
+                        <h3 class="text-xl font-semibold mb-3">💼 Sales & Client Calls</h3>
+                        <p class="text-slate-400">Close deals faster with crystal-clear client calls, automatic notes,
+                            and follow-up reminders powered by Damai.</p>
+                    </div>
+
+                    <div class="glass-card p-8" data-aos="fade-up" data-aos-delay="300">
+                        <h3 class="text-xl font-semibold mb-3">🌐 Global Organizations</h3>
+                        <p class="text-slate-400">Support 50+ languages with real-time translation. Break down language
+                            barriers and foster true global collaboration.</p>
+                    </div>
+
+                    <div class="glass-card p-8" data-aos="fade-up" data-aos-delay="400">
+                        <h3 class="text-xl font-semibold mb-3">🏥 Healthcare</h3>
+                        <p class="text-slate-400">HIPAA-compliant team communication for medical professionals. Secure
+                            consultations and collaborative diagnosis.</p>
+                    </div>
+
+                    <div class="glass-card p-8" data-aos="fade-up" data-aos-delay="500">
+                        <h3 class="text-xl font-semibold mb-3">⚙️ Technical Teams</h3>
+                        <p class="text-slate-400">DevOps, engineering teams, and support reps stay aligned with voice
+                            calls, screenshare, and automatic incident summaries.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Pricing Section -->
+        <section class="py-16 px-6 relative">
+            <div class="max-w-4xl mx-auto">
+                <h2 class="text-3xl font-bold text-center mb-12">
+                    Simple, Transparent <span class="glow-text">Pricing</span>
+                </h2>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div class="glass-card p-8 text-center" data-aos="fade-up">
+                        <h3 class="text-xl font-semibold mb-4">Starter</h3>
+                        <p class="text-3xl font-bold mb-2">Free</p>
+                        <p class="text-slate-400 text-sm mb-6">Perfect for small teams</p>
+                        <ul class="text-left text-sm mb-8 space-y-3">
+                            <li>✅ Up to 10 team members</li>
+                            <li>✅ Unlimited 1-on-1 calls</li>
+                            <li>✅ Group calls (up to 5)</li>
+                            <li>✅ Basic Damai AI features</li>
+                            <li>❌ Advanced analytics</li>
+                        </ul>
+                        <button class="btn-primary w-full">Get Started</button>
+                    </div>
+
+                    <div class="glass-card p-8 text-center border-2 border-purple-500" data-aos="fade-up"
+                        data-aos-delay="100">
+                        <div
+                            class="inline-block bg-purple-500/20 text-purple-300 px-3 py-1 rounded-full text-xs font-semibold mb-4">
+                            POPULAR</div>
+                        <h3 class="text-xl font-semibold mb-4">Professional</h3>
+                        <p class="text-3xl font-bold mb-2">$29<span class="text-lg">/mo</span></p>
+                        <p class="text-slate-400 text-sm mb-6">For growing teams</p>
+                        <ul class="text-left text-sm mb-8 space-y-3">
+                            <li>✅ Unlimited team members</li>
+                            <li>✅ Unlimited 1-on-1 calls</li>
+                            <li>✅ Group calls (up to 50)</li>
+                            <li>✅ Advanced Damai AI</li>
+                            <li>✅ Analytics & insights</li>
+                        </ul>
+                        <button class="btn-primary w-full">Start Free Trial</button>
+                    </div>
+
+                    <div class="glass-card p-8 text-center" data-aos="fade-up" data-aos-delay="200">
+                        <h3 class="text-xl font-semibold mb-4">Enterprise</h3>
+                        <p class="text-3xl font-bold mb-2">Custom</p>
+                        <p class="text-slate-400 text-sm mb-6">For large organizations</p>
+                        <ul class="text-left text-sm mb-8 space-y-3">
+                            <li>✅ Unlimited everything</li>
+                            <li>✅ Dedicated support</li>
+                            <li>✅ Custom integrations</li>
+                            <li>✅ On-premise deployment</li>
+                            <li>✅ SLA guarantee</li>
+                        </ul>
+                        <button class="btn-primary w-full">Contact Sales</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- CTA Section -->
+        <section class="py-16 px-6 relative text-center">
+            <div class="max-w-2xl mx-auto" data-aos="fade-up">
+                <h2 class="text-3xl font-bold mb-4">Ready to Transform Your Team?</h2>
+                <p class="text-slate-400 mb-8">Join thousands of teams already collaborating smarter with Dcalls.</p>
+                <button class="btn-primary text-lg">Start Free Today</button>
+            </div>
+        </section>
+
+        <!-- Footer -->
+        <footer class="py-16 px-6 border-t border-purple-900/30 relative">
+            <div class="max-w-7xl mx-auto">
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-10">
+                    <div>
+                        <a href="index.html" class="flex items-center gap-3 text-xl font-bold mb-4">
+                            <span class="glow-text">Dcalls</span>
+                        </a>
+                        <p class="text-slate-500 text-sm">Voice, video, and messaging reimagined with AI.</p>
+                    </div>
+                    <div>
+                        <h4 class="font-semibold mb-4 text-sm uppercase tracking-wider text-slate-400">Product</h4>
+                        <ul class="space-y-2 text-sm text-slate-500">
+                            <li><a href="index.html#features"
+                                    class="hover:text-purple-400 transition-colors">Features</a>
+                            </li>
+                            <li><a href="index.html#how-it-works" class="hover:text-purple-400 transition-colors">How It
+                                    Works</a></li>
+                            <li><a href="damai.html" class="hover:text-purple-400 transition-colors">Damai AI</a></li>
+                            <li><a href="teams.html" class="hover:text-purple-400 transition-colors">Teams</a></li>
+                        </ul>
+                    </div>
+                    <div>
+                        <h4 class="font-semibold mb-4 text-sm uppercase tracking-wider text-slate-400">Support</h4>
+                        <ul class="space-y-2 text-sm text-slate-500">
+                            <li><a href="help.HTML" class="hover:text-purple-400 transition-colors">Help Center</a></li>
+                            <li><a href="help.HTML#feedback" class="hover:text-purple-400 transition-colors">Send
+                                    Feedback</a></li>
+                            <li><a href="mailto:dcallsapp@gmail.com"
+                                    class="hover:text-purple-400 transition-colors">dcallsapp@gmail.com</a></li>
+                            <li><a href="#" class="hover:text-purple-400 transition-colors">Privacy Policy</a></li>
+                        </ul>
+                    </div>
+                    <div>
+                        <h4 class="font-semibold mb-4 text-sm uppercase tracking-wider text-slate-400">Connect</h4>
+                        <div class="flex gap-4">
+                            <a href="#"
+                                class="w-10 h-10 rounded-full bg-white/5 border border-purple-900/30 flex items-center justify-center hover:border-purple-500 transition-all">🐦</a>
+                            <a href="#"
+                                class="w-10 h-10 rounded-full bg-white/5 border border-purple-900/30 flex items-center justify-center hover:border-purple-500 transition-all">📘</a>
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-12 pt-8 border-t border-purple-900/20 text-center text-slate-600 text-sm">
+                    © 2026 Dcalls. All rights reserved.
+                </div>
+            </div>
+        </footer>
+    </div>
+
+    <script src="https://unpkg.com/aos@2.3.1/dist/aos.js"></script>
+    <script>
+        AOS.init({ duration: 800, once: true, offset: 100 });
+
+        particlesJS('particles-js', {
+            particles: {
+                number: { value: 40, density: { enable: true, value_area: 800 } },
+                color: { value: '#7c3aed' },
+                shape: { type: 'circle' },
+                opacity: { value: 0.2, random: true },
+                size: { value: 2, random: true },
+                line_linked: { enable: true, distance: 150, color: '#3b82f6', opacity: 0.1, width: 1 },
+                move: { enable: true, speed: 1, direction: 'none', random: true, out_mode: 'out' }
+            },
+            interactivity: {
+                detect_on: 'canvas',
+                events: { onhover: { enable: true, mode: 'grab' } },
+                modes: { grab: { distance: 140, line_linked: { opacity: 0.25 } } }
+            },
+            retina_detect: true
+        });
+
+        // Mobile menu toggle
+        const mobileMenuBtn = document.getElementById('mobileMenuBtn');
+        const mobileMenu = document.getElementById('mobileMenu');
+        mobileMenuBtn.addEventListener('click', () => mobileMenu.classList.toggle('open'));
+    </script>
+</body>
+
+</html>

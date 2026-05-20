@@ -1,0 +1,137 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile and settings",
+      "type": "object",
+      "properties": {
+        "displayName": { "type": "string" },
+        "email": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "publicKey": { "type": "object" },
+        "fcmTokens": { "type": "array", "items": { "type": "string" } },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "settings": {
+          "type": "object",
+          "properties": {
+            "defaultLanguage": { "type": "string" },
+            "aiVoice": { "type": "string" },
+            "damaiPersona": { "type": "string", "enum": ["professional", "friendly", "concise"] }
+          }
+        }
+      },
+      "required": ["email", "createdAt"]
+    },
+    "Message": {
+      "title": "Message",
+      "description": "Chat message",
+      "type": "object",
+      "properties": {
+        "text": { "type": "string" },
+        "senderId": { "type": "string" },
+        "receiverId": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "isAi": { "type": "boolean" },
+        "type": { "type": "string", "enum": ["text", "image", "system"] }
+      },
+      "required": ["text", "senderId", "timestamp"]
+    },
+    "CallRecord": {
+      "title": "CallRecord",
+      "description": "Record of a call",
+      "type": "object",
+      "properties": {
+        "participants": { "type": "array", "items": { "type": "string" } },
+        "startTime": { "type": "string", "format": "date-time" },
+        "endTime": { "type": "string", "format": "date-time" },
+        "type": { "type": "string", "enum": ["voice", "video"] },
+        "status": { "type": "string", "enum": ["completed", "missed", "declined"] }
+      },
+      "required": ["participants", "startTime", "type", "status"]
+    },
+    "Recording": {
+      "title": "Recording",
+      "description": "Call recording and summary",
+      "type": "object",
+      "properties": {
+        "callId": { "type": "string" },
+        "summary": { "type": "string" },
+        "duration": { "type": "number" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["callId", "summary", "timestamp"]
+    },
+    "AiMemory": {
+      "title": "AiMemory",
+      "description": "Damai's learned knowledge",
+      "type": "object",
+      "properties": {
+        "topic": { "type": "string" },
+        "content": { "type": "string" },
+        "source": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "relevance": { "type": "number" }
+      },
+      "required": ["topic", "content", "timestamp"]
+    },
+    "Feedback": {
+      "title": "Feedback",
+      "description": "User feedback on AI",
+      "type": "object",
+      "properties": {
+        "messageId": { "type": "string" },
+        "rating": { "type": "number" },
+        "comment": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["messageId", "rating", "timestamp"]
+    },
+    "Contact": {
+      "title": "Contact",
+      "description": "User contact",
+      "type": "object",
+      "properties": {
+        "displayName": { "type": "string" },
+        "phoneNumber": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "ownerId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["displayName", "phoneNumber", "ownerId", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/users/{userId}/messages/{messageId}": {
+      "schema": "Message",
+      "description": "User chat messages"
+    },
+    "/users/{userId}/calls/{callId}": {
+      "schema": "CallRecord",
+      "description": "User call history"
+    },
+    "/users/{userId}/recordings/{recordingId}": {
+      "schema": "Recording",
+      "description": "Call summaries"
+    },
+    "/users/{userId}/damai_messages/{messageId}": {
+      "schema": "Message",
+      "description": "Damai AI chat messages"
+    },
+    "/users/{userId}/ai_memory/{memoryId}": {
+      "schema": "AiMemory",
+      "description": "Damai's long-term memory"
+    },
+    "/users/{userId}/feedback/{feedbackId}": {
+      "schema": "Feedback",
+      "description": "AI feedback"
+    },
+    "/users/{userId}/contacts/{contactId}": {
+      "schema": "Contact",
+      "description": "User contacts"
+    }
+  }
+}

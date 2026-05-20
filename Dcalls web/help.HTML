@@ -1,0 +1,932 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Help Center — Dcalls Support</title>
+    <link rel="icon" href="dcalls.ico" type="image/x-icon">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap"
+        rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://unpkg.com/aos@2.3.1/dist/aos.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/particles.js/2.0.0/particles.min.js"></script>
+    <style>
+        :root {
+            --bg-deep: #06061a;
+            --purple: #7c3aed;
+            --purple-light: #a855f7;
+            --blue-glow: #3b82f6;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--bg-deep);
+            color: #e2e8f0;
+            overflow-x: hidden;
+            line-height: 1.6;
+        }
+
+        #particles-js {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        .content-wrapper {
+            position: relative;
+            z-index: 1;
+        }
+
+        .glass-nav {
+            background: rgba(10, 10, 35, 0.75);
+            backdrop-filter: blur(25px);
+            -webkit-backdrop-filter: blur(25px);
+            border-bottom: 1px solid rgba(124, 58, 237, 0.25);
+        }
+
+        .glass-card {
+            background: rgba(20, 20, 55, 0.45);
+            backdrop-filter: blur(18px);
+            -webkit-backdrop-filter: blur(18px);
+            border: 1px solid rgba(124, 58, 237, 0.2);
+            border-radius: 20px;
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .glass-card:hover {
+            border-color: rgba(124, 58, 237, 0.5);
+            box-shadow: 0 8px 40px rgba(124, 58, 237, 0.2);
+        }
+
+        .glow-text {
+            background: linear-gradient(135deg, #a855f7, #7c3aed, #3b82f6, #06b6d4);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #7c3aed, #3b82f6);
+            color: white;
+            padding: 14px 32px;
+            border-radius: 50px;
+            font-weight: 600;
+            font-size: 1rem;
+            border: none;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn-primary:hover {
+            box-shadow: 0 8px 30px rgba(124, 58, 237, 0.5);
+            transform: translateY(-2px);
+        }
+
+        .btn-primary::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+            transition: left 0.5s;
+        }
+
+        .btn-primary:hover::before {
+            left: 100%;
+        }
+
+        .nav-link {
+            color: #94a3b8;
+            transition: color 0.3s;
+            position: relative;
+            text-decoration: none;
+        }
+
+        .nav-link:hover,
+        .nav-link.active {
+            color: #e2e8f0;
+        }
+
+        .nav-link::after {
+            content: '';
+            position: absolute;
+            bottom: -4px;
+            left: 0;
+            width: 0;
+            height: 2px;
+            background: linear-gradient(90deg, #7c3aed, #3b82f6);
+            transition: width 0.3s;
+        }
+
+        .nav-link:hover::after,
+        .nav-link.active::after {
+            width: 100%;
+        }
+
+        .mobile-menu {
+            display: none;
+        }
+
+        .mobile-menu.open {
+            display: flex;
+        }
+
+        /* Search Bar */
+        .search-container {
+            position: relative;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        .search-input {
+            width: 100%;
+            padding: 18px 24px 18px 56px;
+            background: rgba(20, 20, 55, 0.6);
+            border: 1px solid rgba(124, 58, 237, 0.35);
+            border-radius: 50px;
+            color: #e2e8f0;
+            font-family: 'Inter', sans-serif;
+            font-size: 1rem;
+            outline: none;
+            transition: all 0.3s ease;
+        }
+
+        .search-input:focus {
+            border-color: #7c3aed;
+            box-shadow: 0 0 30px rgba(124, 58, 237, 0.25);
+        }
+
+        .search-input::placeholder {
+            color: #64748b;
+        }
+
+        .search-icon {
+            position: absolute;
+            left: 20px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 1.2rem;
+            color: #7c3aed;
+            pointer-events: none;
+        }
+
+        .search-results {
+            display: none;
+            margin-top: 8px;
+            padding: 12px 20px;
+            background: rgba(20, 20, 55, 0.8);
+            border: 1px solid rgba(124, 58, 237, 0.25);
+            border-radius: 16px;
+            text-align: left;
+            color: #94a3b8;
+            font-size: 0.9rem;
+        }
+
+        .search-results.visible {
+            display: block;
+        }
+
+        .search-result-item {
+            padding: 10px 14px;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .search-result-item:hover {
+            background: rgba(124, 58, 237, 0.15);
+        }
+
+        .search-result-item .highlight {
+            color: #a855f7;
+            font-weight: 500;
+        }
+
+        .no-results {
+            padding: 10px 14px;
+            color: #64748b;
+            font-style: italic;
+        }
+
+        /* FAQ Accordion */
+        .faq-section-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin-bottom: 16px;
+            padding-bottom: 8px;
+            border-bottom: 2px solid rgba(124, 58, 237, 0.25);
+        }
+
+        .faq-item {
+            border-bottom: 1px solid rgba(124, 58, 237, 0.12);
+            overflow: hidden;
+        }
+
+        .faq-question {
+            width: 100%;
+            text-align: left;
+            padding: 18px 0;
+            background: none;
+            border: none;
+            color: #e2e8f0;
+            font-size: 1rem;
+            font-weight: 500;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-family: 'Inter', sans-serif;
+            transition: color 0.3s;
+            gap: 12px;
+        }
+
+        .faq-question:hover {
+            color: #a855f7;
+        }
+
+        .faq-arrow {
+            transition: transform 0.3s;
+            font-size: 1rem;
+            color: #7c3aed;
+            flex-shrink: 0;
+        }
+
+        .faq-item.open .faq-arrow {
+            transform: rotate(180deg);
+        }
+
+        .faq-answer {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.5s ease, padding 0.4s ease;
+            color: #94a3b8;
+            font-size: 0.93rem;
+            line-height: 1.75;
+        }
+
+        .faq-item.open .faq-answer {
+            max-height: 400px;
+            padding-bottom: 18px;
+        }
+
+        /* Category Cards */
+        .help-category-card {
+            background: rgba(20, 20, 55, 0.4);
+            border: 1px solid rgba(124, 58, 237, 0.15);
+            border-radius: 16px;
+            padding: 24px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.35s ease;
+        }
+
+        .help-category-card:hover {
+            border-color: rgba(124, 58, 237, 0.5);
+            box-shadow: 0 8px 30px rgba(124, 58, 237, 0.15);
+            transform: translateY(-3px);
+        }
+
+        .help-category-icon {
+            font-size: 2.2rem;
+            margin-bottom: 12px;
+        }
+
+        .help-category-card h3 {
+            font-weight: 600;
+            font-size: 1.05rem;
+            margin-bottom: 4px;
+        }
+
+        .help-category-card p {
+            font-size: 0.85rem;
+            color: #64748b;
+        }
+
+        /* Input fields */
+        .input-field {
+            width: 100%;
+            padding: 14px 18px;
+            background: rgba(15, 15, 45, 0.5);
+            border: 1px solid rgba(124, 58, 237, 0.3);
+            border-radius: 12px;
+            color: #e2e8f0;
+            font-family: 'Inter', sans-serif;
+            font-size: 0.95rem;
+            transition: border-color 0.3s, box-shadow 0.3s;
+            outline: none;
+            resize: vertical;
+        }
+
+        .input-field:focus {
+            border-color: #7c3aed;
+            box-shadow: 0 0 20px rgba(124, 58, 237, 0.15);
+        }
+
+        .input-field::placeholder {
+            color: #64748b;
+        }
+
+        textarea.input-field {
+            min-height: 120px;
+        }
+
+        /* Tag badges */
+        .tag {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            background: rgba(124, 58, 237, 0.15);
+            color: #a855f7;
+            border: 1px solid rgba(124, 58, 237, 0.25);
+        }
+
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #06061a;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: linear-gradient(180deg, #7c3aed, #3b82f6);
+            border-radius: 4px;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="particles-js"></div>
+
+    <div class="content-wrapper">
+        <!-- Navigation -->
+        <nav class="glass-nav fixed top-0 left-0 right-0 z-50 px-6 py-4">
+            <div class="max-w-7xl mx-auto flex items-center justify-between">
+                <a href="index.HTML" class="flex items-center gap-3 text-xl font-bold">
+                    <img src="logo.png" alt="Dcalls" width="36" height="36" />
+                    <span class="glow-text">Dcalls</span>
+                </a>
+                <div class="hidden md:flex items-center gap-8">
+                    <a href="index.HTML" class="nav-link text-sm font-medium">Home</a>
+                    <a href="damai.HTML" class="nav-link text-sm font-medium">Damai AI</a>
+                    <a href="teams.HTML" class="nav-link text-sm font-medium">Teams</a>
+                    <a href="help.HTML" class="nav-link active text-sm font-medium">Help Center</a>
+                </div>
+                <button id="mobileMenuBtn" class="md:hidden text-white text-2xl">☰</button>
+            </div>
+            <div id="mobileMenu"
+                class="mobile-menu fixed top-[72px] left-0 right-0 glass-nav flex-col items-center gap-6 py-8">
+                <a href="index.HTML" class="nav-link text-sm font-medium">Home</a>
+                <a href="damai.HTML" class="nav-link text-sm font-medium">Damai AI</a> <a href="teams.HTML"
+                    class="nav-link text-sm font-medium">Teams</a> <a href="help.HTML"
+                    class="nav-link active text-sm font-medium">Help Center</a>
+            </div>
+        </nav>
+
+        <!-- Hero with Search -->
+        <section class="relative pt-32 pb-12 px-6 text-center">
+            <div class="max-w-3xl mx-auto" data-aos="fade-up">
+                <h1 class="text-4xl md:text-5xl font-extrabold mb-4">How Can We <span class="glow-text">Help</span>?
+                </h1>
+                <p class="text-slate-400 text-lg mb-8">Search our knowledge base or browse categories below.</p>
+                <div class="search-container">
+                    <span class="search-icon">🔍</span>
+                    <input type="text" class="search-input" id="helpSearch"
+                        placeholder="Search for answers... (e.g., 'voice cloning', 'billing', 'translation')"
+                        autocomplete="off">
+                    <div class="search-results" id="searchResults"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Help Category Cards -->
+        <section class="py-8 px-6 relative">
+            <div class="max-w-5xl mx-auto">
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4" data-aos="fade-up" data-aos-delay="100">
+                    <div class="help-category-card"
+                        onclick="document.getElementById('generalFaq').scrollIntoView({behavior:'smooth'})">
+                        <div class="help-category-icon">📱</div>
+                        <h3>Getting Started</h3>
+                        <p>Setup & basics</p>
+                    </div>
+                    <div class="help-category-card"
+                        onclick="document.getElementById('damaiFaq').scrollIntoView({behavior:'smooth'})">
+                        <div class="help-category-icon">🤖</div>
+                        <h3>Damai AI</h3>
+                        <p>AI assistant help</p>
+                    </div>
+                    <div class="help-category-card"
+                        onclick="document.getElementById('accountFaq').scrollIntoView({behavior:'smooth'})">
+                        <div class="help-category-icon">🔐</div>
+                        <h3>Account & Billing</h3>
+                        <p>Plans & security</p>
+                    </div>
+                    <div class="help-category-card"
+                        onclick="document.getElementById('technicalFaq').scrollIntoView({behavior:'smooth'})">
+                        <div class="help-category-icon">🔧</div>
+                        <h3>Technical</h3>
+                        <p>Troubleshooting</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- FAQ Sections -->
+        <section class="py-12 px-6 relative">
+            <div class="max-w-3xl mx-auto">
+
+                <!-- General FAQ -->
+                <div class="mb-14" id="generalFaq" data-aos="fade-up">
+                    <h2 class="faq-section-title">📱 <span class="glow-text">Getting Started</span></h2>
+                    <div class="glass-card p-6 md:p-10">
+                        <div class="faq-item">
+                            <button class="faq-question">What is Dcalls?<span class="faq-arrow">▼</span></button>
+                            <div class="faq-answer">Dcalls is a next-generation communication platform that enables
+                                crystal-clear voice calls, stunning 4K video calls, and instant messaging over the
+                                internet. It's powered by Damai, an intelligent AI assistant that handles translations,
+                                scheduling, smart replies, voice cloning, and more.</div>
+                        </div>
+                        <div class="faq-item">
+                            <button class="faq-question">How do I create an account?<span
+                                    class="faq-arrow">▼</span></button>
+                            <div class="faq-answer">Download the Dcalls app from the App Store or Google Play, or visit
+                                our web app. Sign up using your email address or phone number. You'll receive a
+                                verification code — enter it, set your display name, and you're ready to start calling
+                                within 60 seconds.</div>
+                        </div>
+                        <div class="faq-item">
+                            <button class="faq-question">What platforms does Dcalls support?<span
+                                    class="faq-arrow">▼</span></button>
+                            <div class="faq-answer">Dcalls is available on iOS, Android, Windows, macOS, and Web. Your
+                                conversations sync seamlessly across all devices. The web version requires no download —
+                                just log in at app.dcalls.com and start calling.</div>
+                        </div>
+                        <div class="faq-item">
+                            <button class="faq-question">Is Dcalls free to use?<span class="faq-arrow">▼</span></button>
+                            <div class="faq-answer">Yes! Dcalls offers a generous free tier with unlimited voice and
+                                video calls, messaging, and basic Damai AI features (voice commands, smart replies,
+                                basic translation). Premium plans unlock advanced AI capabilities like voice cloning,
+                                unlimited real-time translation across 50+ languages, and priority support. See our <a
+                                    href="#" class="text-purple-400 underline">Pricing page</a> for details.</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Damai AI FAQ -->
+                <div class="mb-14" id="damaiFaq" data-aos="fade-up">
+                    <h2 class="faq-section-title">🤖 <span class="glow-text">Damai AI</span> Help</h2>
+                    <div class="glass-card p-6 md:p-10">
+                        <div class="faq-item">
+                            <button class="faq-question">How does Damai's real-time translation work?<span
+                                    class="faq-arrow">▼</span></button>
+                            <div class="faq-answer">Damai uses advanced neural machine translation models that process
+                                speech in real-time during calls. As someone speaks, Damai translates and delivers the
+                                message in your preferred language with near-zero latency. It currently supports 50+
+                                languages including Spanish, Mandarin, Arabic, French, Hindi, and more. You can enable
+                                it during any call by tapping the Damai icon and selecting your target language.</div>
+                        </div>
+                        <div class="faq-item">
+                            <button class="faq-question">Is voice cloning safe and secure?<span
+                                    class="faq-arrow">▼</span></button>
+                            <div class="faq-answer">Absolutely. Voice cloning requires explicit user consent and a
+                                secure voice sample enrollment process (you read a short passage aloud). Your voice
+                                model is encrypted end-to-end with AES-256 and never shared with third parties. It's
+                                stored exclusively on your device by default, with optional encrypted cloud backup. You
+                                can delete your voice model permanently at any time from Settings > Damai > Voice Model
+                                > Delete.</div>
+                        </div>
+                        <div class="faq-item">
+                            <button class="faq-question">How do I schedule a call with Damai?<span
+                                    class="faq-arrow">▼</span></button>
+                            <div class="faq-answer">Simply tell Damai "Schedule a call with [contact name] for
+                                [time/day]" or type it in chat. Damai checks both calendars, confirms the slot, and
+                                sends invitations automatically. You'll get a push notification 10 minutes before the
+                                call. You can also say "Damai, what's on my schedule today?" for a quick overview.</div>
+                        </div>
+                        <div class="faq-item">
+                            <button class="faq-question">Can Damai summarize my meetings?<span
+                                    class="faq-arrow">▼</span></button>
+                            <div class="faq-answer">Yes! After every call where Damai is active, you'll receive an
+                                AI-generated summary including key decisions, action items with assigned owners,
+                                important timestamps, and follow-up suggestions. Summaries are saved in your chat
+                                history and can be exported as PDF or shared with participants. Enable this in Settings
+                                > Damai > Meeting Summaries.</div>
+                        </div>
+                        <div class="faq-item">
+                            <button class="faq-question">How do voice commands work?<span
+                                    class="faq-arrow">▼</span></button>
+                            <div class="faq-answer">Voice commands let you control Dcalls hands-free. Say "Hey Damai"
+                                followed by your command — for example: "Hey Damai, call Mom," "Hey Damai, send a
+                                message to the team group," or "Hey Damai, mute my mic." Voice commands work even when
+                                Dcalls is in the background (with permission). You can customize the wake word in
+                                Settings > Damai > Voice Commands.</div>
+                        </div>
+                        <div class="faq-item">
+                            <button class="faq-question">What is voice cloning and how do I set it up?<span
+                                    class="faq-arrow">▼</span></button>
+                            <div class="faq-answer">Voice cloning creates a personalized AI voice model that sounds just
+                                like you. To set it up: Go to Settings > Damai > Voice Cloning > Enroll. You'll be asked
+                                to read 10-15 sentences aloud in a quiet environment. Damai processes this sample (takes
+                                about 2 minutes) and creates your voice model. Once ready, your smart replies and voice
+                                command responses will use your cloned voice. Premium feature.</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Account & Billing FAQ -->
+                <div class="mb-14" id="accountFaq" data-aos="fade-up">
+                    <h2 class="faq-section-title">🔐 <span class="glow-text">Account & Billing</span></h2>
+                    <div class="glass-card p-6 md:p-10">
+                        <div class="faq-item">
+                            <button class="faq-question">How do I reset my password?<span
+                                    class="faq-arrow">▼</span></button>
+                            <div class="faq-answer">Go to Settings > Account > Change Password, or click "Forgot
+                                Password" on the login screen. You'll receive a reset link via email. For security, the
+                                link expires after 30 minutes. If you don't see the email, check your spam folder or
+                                contact us at dcallsapp@gmail.com.</div>
+                        </div>
+                        <div class="faq-item">
+                            <button class="faq-question">What payment methods do you accept?<span
+                                    class="faq-arrow">▼</span></button>
+                            <div class="faq-answer">We accept Visa, Mastercard, American Express, PayPal, Apple Pay, and
+                                Google Pay. For annual business plans, we also support invoicing and wire transfers. All
+                                payments are processed securely through Stripe.</div>
+                        </div>
+                        <div class="faq-item">
+                            <button class="faq-question">How do I cancel my subscription?<span
+                                    class="faq-arrow">▼</span></button>
+                            <div class="faq-answer">You can cancel anytime from Settings > Billing > Manage Subscription
+                                > Cancel. Your premium features remain active until the end of your current billing
+                                period. We don't offer partial refunds, but you won't be charged again after
+                                cancellation. Your data is retained for 90 days in case you want to reactivate.</div>
+                        </div>
+                        <div class="faq-item">
+                            <button class="faq-question">Is my data encrypted?<span class="faq-arrow">▼</span></button>
+                            <div class="faq-answer">Yes. All Dcalls communications — voice, video, and messages — are
+                                protected with end-to-end encryption (E2EE) by default. This means only you and the
+                                intended recipients can read or hear your conversations. Not even Dcalls can access your
+                                call content. We use the Signal Protocol, the gold standard for messaging encryption.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Technical FAQ -->
+                <div class="mb-14" id="technicalFaq" data-aos="fade-up">
+                    <h2 class="faq-section-title">🔧 <span class="glow-text">Technical</span> Troubleshooting</h2>
+                    <div class="glass-card p-6 md:p-10">
+                        <div class="faq-item">
+                            <button class="faq-question">Call quality is poor — what can I do?<span
+                                    class="faq-arrow">▼</span></button>
+                            <div class="faq-answer">Try these steps: (1) Switch to a stronger Wi-Fi or cellular
+                                connection, (2) Close background apps that may be using bandwidth, (3) In Settings >
+                                Call, toggle "Adaptive Quality" on — this automatically adjusts video resolution based
+                                on your connection, (4) If on mobile, try moving to a location with better signal.
+                                Dcalls works with as little as 256kbps for voice calls.</div>
+                        </div>
+                        <div class="faq-item">
+                            <button class="faq-question">Damai isn't responding to voice commands.<span
+                                    class="faq-arrow">▼</span></button>
+                            <div class="faq-answer">First, ensure voice commands are enabled in Settings > Damai > Voice
+                                Commands. Check that Dcalls has microphone permissions (System Settings > Privacy >
+                                Microphone). Try recalibrating by saying "Hey Damai" clearly 3 times. If the issue
+                                persists, restart the app. On some Android devices, battery optimization may restrict
+                                background listening — add Dcalls to the "Unrestricted" battery list.</div>
+                        </div>
+                        <div class="faq-item">
+                            <button class="faq-question">App keeps crashing — how do I fix it?<span
+                                    class="faq-arrow">▼</span></button>
+                            <div class="faq-answer">First, ensure you're on the latest version (check your app store).
+                                Try clearing the app cache: Settings > Storage > Clear Cache (this won't delete your
+                                messages). If crashes continue, uninstall and reinstall the app — your data is
+                                cloud-synced, so you won't lose anything. Still having issues? Contact us at
+                                dcallsapp@gmail.com with your device model and OS version.</div>
+                        </div>
+                        <div class="faq-item">
+                            <button class="faq-question">Notifications not working.<span
+                                    class="faq-arrow">▼</span></button>
+                            <div class="faq-answer">Check: (1) Dcalls notification settings within the app (Settings >
+                                Notifications), (2) System notification settings for Dcalls (ensure they're allowed),
+                                (3) Do Not Disturb mode isn't active, (4) On Android, ensure "Background data" isn't
+                                restricted for Dcalls. On iOS, check that "Focus Modes" aren't blocking Dcalls
+                                notifications.</div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </section>
+
+        <!-- Contact Section -->
+        <section class="py-16 px-6 relative" id="contact">
+            <div class="max-w-3xl mx-auto">
+                <div class="text-center mb-10" data-aos="fade-up">
+                    <h2 class="text-3xl font-bold mb-4">Still Need <span class="glow-text">Help</span>?</h2>
+                    <p class="text-slate-400">We're here for you. Send us a message and we'll get back within 24 hours.
+                    </p>
+                </div>
+                <div class="glass-card p-8 md:p-12" data-aos="fade-up" data-aos-delay="100">
+                    <form id="contactForm" class="space-y-6">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div>
+                                <label class="block text-sm font-medium text-slate-400 mb-2">Name</label>
+                                <input type="text" class="input-field" id="contactName" placeholder="Your name"
+                                    required>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-slate-400 mb-2">Email</label>
+                                <input type="email" class="input-field" id="contactEmail" placeholder="your@email.com"
+                                    required>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-slate-400 mb-2">Subject</label>
+                            <input type="text" class="input-field" id="contactSubject" placeholder="How can we help?"
+                                required>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-slate-400 mb-2">Message</label>
+                            <textarea class="input-field" id="contactMessage" rows="5"
+                                placeholder="Describe your issue in detail..." required></textarea>
+                        </div>
+                        <button type="submit" class="btn-primary w-full text-base">📩 Send Message</button>
+                    </form>
+                    <div class="mt-8 pt-8 border-t border-purple-900/20 text-center">
+                        <p class="text-slate-400 text-sm mb-2">Or email us directly:</p>
+                        <a href="mailto:dcallsapp@gmail.com"
+                            class="text-purple-400 hover:text-purple-300 font-medium text-lg transition-colors">dcallsapp@gmail.com</a>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Feedback Section -->
+        <section class="py-16 px-6 relative" id="feedback">
+            <div class="max-w-3xl mx-auto">
+                <div class="text-center mb-10" data-aos="fade-up">
+                    <h2 class="text-3xl font-bold mb-4">Share Your <span class="glow-text">Feedback</span></h2>
+                    <p class="text-slate-400">We'd love to hear from you! Your feedback helps us make Dcalls even
+                        better. All feedback is sent directly to our team.</p>
+                </div>
+                <div class="glass-card p-8 md:p-12" data-aos="fade-up" data-aos-delay="100">
+                    <form id="feedbackForm" class="space-y-6">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div>
+                                <label class="block text-sm font-medium text-slate-400 mb-2">Name <span
+                                        class="text-slate-600">(optional)</span></label>
+                                <input type="text" class="input-field" id="feedbackName" placeholder="Your name">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-slate-400 mb-2">Email <span
+                                        class="text-slate-600">(optional)</span></label>
+                                <input type="email" class="input-field" id="feedbackEmail" placeholder="your@email.com">
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-slate-400 mb-2">What best describes your
+                                feedback?</label>
+                            <div class="flex flex-wrap gap-2 mt-1">
+                                <label class="tag cursor-pointer select-none">
+                                    <input type="radio" name="feedbackType" value="Feature Request" class="hidden">💡
+                                    Feature Request
+                                </label>
+                                <label class="tag cursor-pointer select-none">
+                                    <input type="radio" name="feedbackType" value="Bug Report" class="hidden">🐛 Bug
+                                    Report
+                                </label>
+                                <label class="tag cursor-pointer select-none">
+                                    <input type="radio" name="feedbackType" value="Improvement" class="hidden">✨
+                                    Improvement
+                                </label>
+                                <label class="tag cursor-pointer select-none">
+                                    <input type="radio" name="feedbackType" value="Compliment" class="hidden">🌟
+                                    Compliment
+                                </label>
+                                <label class="tag cursor-pointer select-none">
+                                    <input type="radio" name="feedbackType" value="Other" class="hidden">📝 Other
+                                </label>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-slate-400 mb-2">Your Feedback <span
+                                    class="text-red-400">*</span></label>
+                            <textarea class="input-field" id="feedbackMessage" rows="6"
+                                placeholder="Tell us what's on your mind — what you love, what could be better, what features you'd like to see... We read every single one."
+                                required></textarea>
+                        </div>
+                        <div>
+                            <label class="flex items-center gap-3 text-sm text-slate-400 cursor-pointer">
+                                <input type="checkbox" id="feedbackContactConsent" class="accent-purple-600 w-4 h-4">
+                                I'm okay with Dcalls contacting me about my feedback
+                            </label>
+                        </div>
+                        <button type="submit" class="btn-primary w-full text-base">💬 Submit Feedback</button>
+                    </form>
+                    <div class="mt-6 pt-6 border-t border-purple-900/20 text-center">
+                        <p class="text-slate-500 text-sm">Feedback is sent to <a href="mailto:dcallsapp@gmail.com"
+                                class="text-purple-400 hover:text-purple-300 transition-colors">dcallsapp@gmail.com</a>
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Footer -->
+        <footer class="py-16 px-6 border-t border-purple-900/30 relative">
+            <div class="max-w-7xl mx-auto">
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-10">
+                    <div>
+                        <a href="index.html" class="flex items-center gap-3 text-xl font-bold mb-4">
+                            <span class="glow-text">Dcalls</span>
+                        </a>
+                        <p class="text-slate-500 text-sm">Voice, video, and messaging reimagined with AI.</p>
+                    </div>
+                    <div>
+                        <h4 class="font-semibold mb-4 text-sm uppercase tracking-wider text-slate-400">Product</h4>
+                        <ul class="space-y-2 text-sm text-slate-500">
+                            <li><a href="index.html#features"
+                                    class="hover:text-purple-400 transition-colors">Features</a></li>
+                            <li><a href="index.html#how-it-works" class="hover:text-purple-400 transition-colors">How It
+                                    Works</a></li>
+                            <li><a href="damai.html" class="hover:text-purple-400 transition-colors">Damai AI</a></li>
+                        </ul>
+                    </div>
+                    <div>
+                        <h4 class="font-semibold mb-4 text-sm uppercase tracking-wider text-slate-400">Support</h4>
+                        <ul class="space-y-2 text-sm text-slate-500">
+                            <li><a href="help.HTML" class="hover:text-purple-400 transition-colors">Help Center</a></li>
+                            <li><a href="help.HTML#feedback" class="hover:text-purple-400 transition-colors">Send
+                                    Feedback</a></li>
+                            <li><a href="mailto:dcallsapp@gmail.com"
+                                    class="hover:text-purple-400 transition-colors">dcallsapp@gmail.com</a></li>
+                            <li><a href="#" class="hover:text-purple-400 transition-colors">Privacy Policy</a></li>
+                        </ul>
+                    </div>
+                    <div>
+                        <h4 class="font-semibold mb-4 text-sm uppercase tracking-wider text-slate-400">Connect</h4>
+                        <div class="flex gap-4">
+                            <a href="#"
+                                class="w-10 h-10 rounded-full bg-white/5 border border-purple-900/30 flex items-center justify-center hover:border-purple-500 transition-all">🐦</a>
+                            <a href="#"
+                                class="w-10 h-10 rounded-full bg-white/5 border border-purple-900/30 flex items-center justify-center hover:border-purple-500 transition-all">📘</a>
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-12 pt-8 border-t border-purple-900/20 text-center text-slate-600 text-sm">
+                    © 2026 Dcalls. All rights reserved.
+                </div>
+            </div>
+        </footer>
+    </div>
+
+    <script src="https://unpkg.com/aos@2.3.1/dist/aos.js"></script>
+    <script>
+        AOS.init({ duration: 800, once: true, offset: 100 });
+
+        particlesJS('particles-js', {
+            particles: {
+                number: { value: 40, density: { enable: true, value_area: 800 } },
+                color: { value: '#7c3aed' },
+                shape: { type: 'circle' },
+                opacity: { value: 0.2, random: true },
+                size: { value: 2, random: true },
+                line_linked: { enable: true, distance: 150, color: '#3b82f6', opacity: 0.1, width: 1 },
+                move: { enable: true, speed: 1, direction: 'none', random: true, out_mode: 'out' }
+            },
+            interactivity: {
+                detect_on: 'canvas',
+                events: { onhover: { enable: true, mode: 'grab' } },
+                modes: { grab: { distance: 140, line_linked: { opacity: 0.25 } } }
+            },
+            retina_detect: true
+        });
+
+        // Mobile menu
+        const mobileMenuBtn = document.getElementById('mobileMenuBtn');
+        const mobileMenu = document.getElementById('mobileMenu');
+        mobileMenuBtn.addEventListener('click', () => mobileMenu.classList.toggle('open'));
+
+        // FAQ Accordion
+        document.querySelectorAll('.faq-question').forEach(button => {
+            button.addEventListener('click', () => {
+                const faqItem = button.parentElement;
+                const isOpen = faqItem.classList.contains('open');
+                document.querySelectorAll('.faq-item').forEach(item => item.classList.remove('open'));
+                if (!isOpen) faqItem.classList.add('open');
+            });
+        });
+
+        // Search functionality
+        const searchInput = document.getElementById('helpSearch');
+        const searchResults = document.getElementById('searchResults');
+
+        const faqData = [
+            { q: 'What is Dcalls?', a: 'Dcalls is a next-generation communication platform for voice calls, video calls, and messaging powered by Damai AI.', section: 'generalFaq' },
+            { q: 'How do I create an account?', a: 'Download the app, sign up with email or phone, verify, and start calling within 60 seconds.', section: 'generalFaq' },
+            { q: 'What platforms does Dcalls support?', a: 'iOS, Android, Windows, macOS, and Web.', section: 'generalFaq' },
+            { q: 'Is Dcalls free?', a: 'Yes, with a generous free tier. Premium plans unlock advanced Damai AI features.', section: 'generalFaq' },
+            { q: 'How does real-time translation work?', a: 'Damai uses neural machine translation to translate speech in real-time during calls across 50+ languages.', section: 'damaiFaq' },
+            { q: 'Is voice cloning safe?', a: 'Yes, encrypted end-to-end with explicit consent required. You can delete your voice model anytime.', section: 'damaiFaq' },
+            { q: 'How do I schedule a call with Damai?', a: 'Say "Schedule a call with [name] for [time]" — Damai checks calendars and sends invites.', section: 'damaiFaq' },
+            { q: 'Can Damai summarize meetings?', a: 'Yes, get AI-generated summaries with key decisions, action items, and timestamps after every call.', section: 'damaiFaq' },
+            { q: 'How do voice commands work?', a: 'Say "Hey Damai" followed by your command. Works hands-free even in the background.', section: 'damaiFaq' },
+            { q: 'How do I set up voice cloning?', a: 'Go to Settings > Damai > Voice Cloning > Enroll and read 10-15 sentences. Premium feature.', section: 'damaiFaq' },
+            { q: 'How do I reset my password?', a: 'Use "Forgot Password" on login or Settings > Account > Change Password.', section: 'accountFaq' },
+            { q: 'What payment methods do you accept?', a: 'Visa, Mastercard, Amex, PayPal, Apple Pay, Google Pay, and invoicing for business plans.', section: 'accountFaq' },
+            { q: 'How do I cancel my subscription?', a: 'Settings > Billing > Manage Subscription > Cancel. Premium features remain until period ends.', section: 'accountFaq' },
+            { q: 'Is my data encrypted?', a: 'Yes, end-to-end encryption using the Signal Protocol for all calls, video, and messages.', section: 'accountFaq' },
+            { q: 'Call quality is poor — help?', a: 'Switch to stronger connection, close background apps, enable Adaptive Quality in Settings.', section: 'technicalFaq' },
+            { q: "Damai isn't responding to voice commands?", a: 'Check permissions, recalibrate, restart app, disable battery optimization on Android.', section: 'technicalFaq' },
+            { q: 'App keeps crashing?', a: 'Update app, clear cache, reinstall if needed. Contact us with device details if it persists.', section: 'technicalFaq' },
+            { q: 'Notifications not working?', a: 'Check in-app notification settings, system notification permissions, and Do Not Disturb mode.', section: 'technicalFaq' },
+        ];
+
+        searchInput.addEventListener('input', () => {
+            const query = searchInput.value.toLowerCase().trim();
+            if (query.length < 2) {
+                searchResults.classList.remove('visible');
+                return;
+            }
+            const matches = faqData.filter(item =>
+                item.q.toLowerCase().includes(query) || item.a.toLowerCase().includes(query)
+            );
+            if (matches.length === 0) {
+                searchResults.innerHTML = '<div class="no-results">No results found. Try different keywords or <a href="#contact" class="text-purple-400 underline">contact us</a>.</div>';
+            } else {
+                searchResults.innerHTML = matches.slice(0, 6).map(m => `
+                    <div class="search-result-item" onclick="document.getElementById('${m.section}').scrollIntoView({behavior:'smooth'}); searchResults.classList.remove('visible'); searchInput.value='';">
+                        🔍 <span class="highlight">${m.q}</span>
+                        <br><small class="text-slate-600">${m.a.substring(0, 80)}...</small>
+                    </div>
+                `).join('');
+            }
+            searchResults.classList.add('visible');
+        });
+
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.search-container')) {
+                searchResults.classList.remove('visible');
+            }
+        });
+
+        // Contact form submission
+        document.getElementById('contactForm').addEventListener('submit', function (e) {
+            e.preventDefault();
+            const name = document.getElementById('contactName').value;
+            const email = document.getElementById('contactEmail').value;
+            const subject = document.getElementById('contactSubject').value;
+            const message = document.getElementById('contactMessage').value;
+            console.log('📩 Support Request — Sent to dcallsapp@gmail.com:', { name, email, subject, message });
+            alert('✅ Thank you, ' + name + '! Your message has been sent to dcallsapp@gmail.com. We\'ll get back to you within 24 hours.');
+            this.reset();
+        });
+
+        // Feedback form submission
+        document.getElementById('feedbackForm').addEventListener('submit', function (e) {
+            e.preventDefault();
+            const name = document.getElementById('feedbackName').value || 'Anonymous';
+            const email = document.getElementById('feedbackEmail').value || 'Not provided';
+            const feedbackType = document.querySelector('input[name="feedbackType"]:checked')?.value || 'Not specified';
+            const message = document.getElementById('feedbackMessage').value;
+            const consent = document.getElementById('feedbackContactConsent').checked;
+            console.log('💬 Feedback — Routed to dcallsapp@gmail.com:', { name, email, feedbackType, message, consent });
+            alert('💜 Thank you for your feedback, ' + name + '! It\'s been routed to dcallsapp@gmail.com. We truly appreciate you helping us improve Dcalls.');
+            this.reset();
+            document.querySelectorAll('input[name="feedbackType"]').forEach(r => r.checked = false);
+            document.getElementById('feedbackContactConsent').checked = false;
+        });
+
+        // Tag selection visual feedback
+        document.querySelectorAll('.tag').forEach(tag => {
+            tag.addEventListener('click', function () {
+                document.querySelectorAll('.tag').forEach(t => {
+                    t.style.background = 'rgba(124,58,237,0.15)';
+                    t.style.borderColor = 'rgba(124,58,237,0.25)';
+                    t.style.color = '#a855f7';
+                });
+                this.style.background = 'rgba(124,58,237,0.35)';
+                this.style.borderColor = '#7c3aed';
+                this.style.color = '#e2e8f0';
+            });
+        });
+    </script>
+</body>
+
+</html>

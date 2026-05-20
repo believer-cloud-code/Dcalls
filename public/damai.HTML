@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Damai AI — Your Intelligent Communication Companion | Dcalls</title>
+    <link rel="icon" href="dcalls.ico" type="image/x-icon">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap"
+        rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://unpkg.com/aos@2.3.1/dist/aos.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/particles.js/2.0.0/particles.min.js"></script>
+    <style>
+        :root {
+            --bg-deep: #06061a;
+            --purple: #7c3aed;
+            --purple-light: #a855f7;
+            --blue-glow: #3b82f6;
+            --cyan: #06b6d4;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--bg-deep);
+            color: #e2e8f0;
+            overflow-x: hidden;
+            line-height: 1.6;
+        }
+
+        #particles-js {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        .content-wrapper {
+            position: relative;
+            z-index: 1;
+        }
+
+        .glass-nav {
+            background: rgba(10, 10, 35, 0.75);
+            backdrop-filter: blur(25px);
+            -webkit-backdrop-filter: blur(25px);
+            border-bottom: 1px solid rgba(124, 58, 237, 0.25);
+        }
+
+        .glass-card {
+            background: rgba(20, 20, 55, 0.45);
+            backdrop-filter: blur(18px);
+            -webkit-backdrop-filter: blur(18px);
+            border: 1px solid rgba(124, 58, 237, 0.2);
+            border-radius: 20px;
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .glass-card:hover {
+            border-color: rgba(124, 58, 237, 0.5);
+            box-shadow: 0 8px 40px rgba(124, 58, 237, 0.2), 0 0 80px rgba(59, 130, 246, 0.08);
+            transform: translateY(-4px);
+        }
+
+        .glow-text {
+            background: linear-gradient(135deg, #a855f7, #7c3aed, #3b82f6, #06b6d4);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #7c3aed, #3b82f6);
+            color: white;
+            padding: 14px 32px;
+            border-radius: 50px;
+            font-weight: 600;
+            font-size: 1rem;
+            border: none;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn-primary:hover {
+            box-shadow: 0 8px 30px rgba(124, 58, 237, 0.5);
+            transform: translateY(-2px);
+        }
+
+        .btn-primary::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+            transition: left 0.5s;
+        }
+
+        .btn-primary:hover::before {
+            left: 100%;
+        }
+
+        .nav-link {
+            color: #94a3b8;
+            transition: color 0.3s;
+            position: relative;
+            text-decoration: none;
+        }
+
+        .nav-link:hover,
+        .nav-link.active {
+            color: #e2e8f0;
+        }
+
+        .nav-link::after {
+            content: '';
+            position: absolute;
+            bottom: -4px;
+            left: 0;
+            width: 0;
+            height: 2px;
+            background: linear-gradient(90deg, #7c3aed, #3b82f6);
+            transition: width 0.3s;
+        }
+
+        .nav-link:hover::after,
+        .nav-link.active::after {
+            width: 100%;
+        }
+
+        .mobile-menu {
+            display: none;
+        }
+
+        .mobile-menu.open {
+            display: flex;
+        }
+
+        /* Damai Orb */
+        .damai-orb-container {
+            position: relative;
+            width: 200px;
+            height: 200px;
+            margin: 0 auto;
+        }
+
+        .damai-orb {
+            width: 200px;
+            height: 200px;
+            border-radius: 50%;
+            background: radial-gradient(circle at 35% 35%, rgba(168, 85, 247, 0.8), rgba(124, 58, 237, 0.5), rgba(59, 130, 246, 0.3), transparent 70%);
+            animation: orbPulse 3s ease-in-out infinite, orbFloat 7s ease-in-out infinite;
+            box-shadow: 0 0 60px rgba(124, 58, 237, 0.5), 0 0 120px rgba(59, 130, 246, 0.3);
+            position: relative;
+        }
+
+        .damai-orb-ring {
+            position: absolute;
+            inset: -20px;
+            border-radius: 50%;
+            border: 2px solid rgba(124, 58, 237, 0.3);
+            animation: ringSpin 10s linear infinite;
+        }
+
+        .damai-orb-ring:nth-child(2) {
+            inset: -40px;
+            animation-duration: 15s;
+            animation-direction: reverse;
+            border-color: rgba(59, 130, 246, 0.2);
+        }
+
+        @keyframes orbPulse {
+
+            0%,
+            100% {
+                transform: scale(1);
+                box-shadow: 0 0 60px rgba(124, 58, 237, 0.5), 0 0 120px rgba(59, 130, 246, 0.3);
+            }
+
+            50% {
+                transform: scale(1.08);
+                box-shadow: 0 0 80px rgba(124, 58, 237, 0.7), 0 0 160px rgba(59, 130, 246, 0.5);
+            }
+        }
+
+        @keyframes orbFloat {
+
+            0%,
+            100% {
+                transform: translateY(0);
+            }
+
+            50% {
+                transform: translateY(-20px);
+            }
+        }
+
+        @keyframes ringSpin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        .capability-icon {
+            width: 50px;
+            height: 50px;
+            border-radius: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 22px;
+            background: linear-gradient(135deg, rgba(124, 58, 237, 0.25), rgba(59, 130, 246, 0.15));
+            border: 1px solid rgba(124, 58, 237, 0.3);
+            flex-shrink: 0;
+        }
+
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #06061a;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: linear-gradient(180deg, #7c3aed, #3b82f6);
+            border-radius: 4px;
+        }
+
+        @media (max-width: 768px) {
+            .damai-orb {
+                width: 140px;
+                height: 140px;
+            }
+
+            .damai-orb-container {
+                width: 140px;
+                height: 140px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div id="particles-js"></div>
+
+    <div class="content-wrapper">
+        <!-- Navigation -->
+        <nav class="glass-nav fixed top-0 left-0 right-0 z-50 px-6 py-4">
+            <div class="max-w-7xl mx-auto flex items-center justify-between">
+                <a href="index.HTML" class="flex items-center gap-3 text-xl font-bold">
+                    <img src="logo.png" alt="Dcalls" width="36" height="36" />
+                    <span class="glow-text">Dcalls</span>
+                </a>
+                <div class="hidden md:flex items-center gap-8">
+                    <a href="index.HTML" class="nav-link text-sm font-medium">Home</a>
+                    <a href="damai.HTML" class="nav-link active text-sm font-medium">Damai AI</a>
+                    <a href="teams.HTML" class="nav-link text-sm font-medium">Teams</a>
+                    <a href="help.HTML" class="nav-link text-sm font-medium">Help Center</a>
+                </div>
+                <div class="hidden md:block">
+                    <button class="btn-primary text-sm">Try Damai Free</button>
+                </div>
+                <button id="mobileMenuBtn" class="md:hidden text-white text-2xl">☰</button>
+            </div>
+            <div id="mobileMenu"
+                class="mobile-menu fixed top-[72px] left-0 right-0 glass-nav flex-col items-center gap-6 py-8">
+                <a href="index.HTML" class="nav-link text-sm font-medium">Home</a>
+                <a href="damai.HTML" class="nav-link active text-sm font-medium">Damai AI</a>
+                <a href="teams.HTML" class="nav-link text-sm font-medium">Teams</a>
+                <a href="help.HTML" class="nav-link text-sm font-medium">Help Center</a>
+                <button class="btn-primary text-sm">Try Damai Free</button>
+            </div>
+        </nav>
+
+        <!-- Hero -->
+        <section class="relative min-h-screen flex items-center justify-center px-6 pt-20 overflow-hidden">
+            <div class="max-w-4xl mx-auto text-center relative z-10" data-aos="fade-up" data-aos-duration="1000">
+                <div class="damai-orb-container mb-10">
+                    <div class="damai-orb-ring"></div>
+                    <div class="damai-orb-ring"></div>
+                    <div class="damai-orb"></div>
+                </div>
+                <h1 class="text-4xl md:text-6xl font-extrabold leading-tight mb-6">
+                    Meet <span class="glow-text">Damai</span>
+                </h1>
+                <p class="text-xl md:text-2xl text-slate-300 mb-3 font-medium">Your AI ally who listens, translates, and
+                    keeps your conversations flowing.</p>
+                <p class="text-lg text-slate-400 max-w-2xl mx-auto mb-10">
+                    Warm, witty, and brilliantly capable — Damai isn't just a tool. She's your communication companion,
+                    ready to assist with everything from real-time translation to voice cloning that sounds just like
+                    you.
+                </p>
+                <button class="btn-primary text-base">✨ Start Talking with Damai</button>
+            </div>
+        </section>
+
+        <!-- Capabilities -->
+        <section class="py-24 px-6 relative">
+            <div class="max-w-5xl mx-auto">
+                <div class="text-center mb-16" data-aos="fade-up">
+                    <h2 class="text-3xl md:text-5xl font-bold mb-4">What Damai <span class="glow-text">Can Do</span>
+                    </h2>
+                    <p class="text-slate-400 text-lg">Six powerful capabilities that transform how you communicate.</p>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <!-- 1. Voice Commands -->
+                    <div class="glass-card p-8 flex gap-5 items-start" data-aos="fade-up" data-aos-delay="100">
+                        <div class="capability-icon">🎙️</div>
+                        <div>
+                            <h3 class="text-xl font-semibold mb-2">Voice Commands</h3>
+                            <p class="text-slate-400 text-sm">Control Dcalls completely hands-free. Start calls, send
+                                messages, and manage your conversations using just your voice. Perfect for when you're
+                                driving or multitasking.</p>
+                        </div>
+                    </div>
+                    <!-- 2. Real-time Translation -->
+                    <div class="glass-card p-8 flex gap-5 items-start" data-aos="fade-up" data-aos-delay="150">
+                        <div class="capability-icon">🌐</div>
+                        <div>
+                            <h3 class="text-xl font-semibold mb-2">Real-time Translation</h3>
+                            <p class="text-slate-400 text-sm">Break every language barrier. Damai translates
+                                conversations in real-time across 50+ languages, making global communication effortless
+                                and natural.</p>
+                        </div>
+                    </div>
+                    <!-- 3. Smart Replies -->
+                    <div class="glass-card p-8 flex gap-5 items-start" data-aos="fade-up" data-aos-delay="200">
+                        <div class="capability-icon">💬</div>
+                        <div>
+                            <h3 class="text-xl font-semibold mb-2">Smart Replies</h3>
+                            <p class="text-slate-400 text-sm">Context-aware response suggestions that match your tone
+                                and style. Damai learns how you communicate and offers replies that feel authentically
+                                you.</p>
+                        </div>
+                    </div>
+                    <!-- 4. Call Scheduling -->
+                    <div class="glass-card p-8 flex gap-5 items-start" data-aos="fade-up" data-aos-delay="250">
+                        <div class="capability-icon">📅</div>
+                        <div>
+                            <h3 class="text-xl font-semibold mb-2">Call Scheduling</h3>
+                            <p class="text-slate-400 text-sm">Never miss a meeting. Damai coordinates across time zones,
+                                finds the perfect slot, and sends reminders — all you do is show up and connect.</p>
+                        </div>
+                    </div>
+                    <!-- 5. Meeting Summaries -->
+                    <div class="glass-card p-8 flex gap-5 items-start" data-aos="fade-up" data-aos-delay="300">
+                        <div class="capability-icon">📝</div>
+                        <div>
+                            <h3 class="text-xl font-semibold mb-2">Meeting Summaries</h3>
+                            <p class="text-slate-400 text-sm">Auto-generated recaps after every call. Damai captures key
+                                decisions, action items, and highlights — so you stay focused on the conversation, not
+                                note-taking.</p>
+                        </div>
+                    </div>
+                    <!-- 6. Voice Cloning -->
+                    <div class="glass-card p-8 flex gap-5 items-start" data-aos="fade-up" data-aos-delay="350">
+                        <div class="capability-icon">🎤</div>
+                        <div>
+                            <h3 class="text-xl font-semibold mb-2">Voice Cloning</h3>
+                            <p class="text-slate-400 text-sm">Your voice, amplified. Damai creates a personalized AI
+                                voice model that sounds just like you — enabling natural-sounding smart replies and
+                                voice commands in your own tone.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Demo CTA -->
+        <section class="py-24 px-6 relative">
+            <div class="max-w-3xl mx-auto text-center glass-card p-12" data-aos="zoom-in">
+                <h2 class="text-3xl md:text-4xl font-bold mb-4">Experience Damai <span class="glow-text">Live</span>
+                </h2>
+                <p class="text-slate-400 text-lg mb-8">Curious how Damai sounds? Try a live demo conversation and see
+                    the magic of AI-powered communication.</p>
+                <button class="btn-primary text-base">🎧 Try Interactive Demo</button>
+            </div>
+        </section>
+
+        <!-- Footer -->
+        <footer class="py-16 px-6 border-t border-purple-900/30 relative">
+            <div class="max-w-7xl mx-auto">
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-10">
+                    <div>
+                        <a href="index.html" class="flex items-center gap-3 text-xl font-bold mb-4">
+                            <span class="glow-text">Dcalls</span>
+                        </a>
+                        <p class="text-slate-500 text-sm">Voice, video, and messaging reimagined with AI.</p>
+                    </div>
+                    <div>
+                        <h4 class="font-semibold mb-4 text-sm uppercase tracking-wider text-slate-400">Product</h4>
+                        <ul class="space-y-2 text-sm text-slate-500">
+                            <li><a href="index.html#features"
+                                    class="hover:text-purple-400 transition-colors">Features</a></li>
+                            <li><a href="index.html#how-it-works" class="hover:text-purple-400 transition-colors">How It
+                                    Works</a></li>
+                            <li><a href="damai.html" class="hover:text-purple-400 transition-colors">Damai AI</a></li>
+                        </ul>
+                    </div>
+                    <div>
+                        <h4 class="font-semibold mb-4 text-sm uppercase tracking-wider text-slate-400">Support</h4>
+                        <ul class="space-y-2 text-sm text-slate-500">
+                            <li><a href="help.HTML" class="hover:text-purple-400 transition-colors">Help Center</a></li>
+                            <li><a href="help.HTML#contact" class="hover:text-purple-400 transition-colors">Contact
+                                    Us</a></li>
+                        </ul>
+                    </div>
+                    <div>
+                        <h4 class="font-semibold mb-4 text-sm uppercase tracking-wider text-slate-400">Connect</h4>
+                        <div class="flex gap-4">
+                            <a href="#"
+                                class="w-10 h-10 rounded-full bg-white/5 border border-purple-900/30 flex items-center justify-center hover:border-purple-500 transition-all">🐦</a>
+                            <a href="#"
+                                class="w-10 h-10 rounded-full bg-white/5 border border-purple-900/30 flex items-center justify-center hover:border-purple-500 transition-all">📘</a>
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-12 pt-8 border-t border-purple-900/20 text-center text-slate-600 text-sm">
+                    © 2026 Dcalls. All rights reserved.
+                </div>
+            </div>
+        </footer>
+    </div>
+
+    <script src="https://unpkg.com/aos@2.3.1/dist/aos.js"></script>
+    <script>
+        AOS.init({ duration: 800, once: true, offset: 100 });
+
+        particlesJS('particles-js', {
+            particles: {
+                number: { value: 50, density: { enable: true, value_area: 800 } },
+                color: { value: '#a855f7' },
+                shape: { type: 'circle' },
+                opacity: { value: 0.25, random: true },
+                size: { value: 2, random: true },
+                line_linked: { enable: true, distance: 150, color: '#7c3aed', opacity: 0.12, width: 1 },
+                move: { enable: true, speed: 1.2, direction: 'none', random: true, out_mode: 'out' }
+            },
+            interactivity: {
+                detect_on: 'canvas',
+                events: { onhover: { enable: true, mode: 'grab' } },
+                modes: { grab: { distance: 140, line_linked: { opacity: 0.3 } } }
+            },
+            retina_detect: true
+        });
+
+        const mobileMenuBtn = document.getElementById('mobileMenuBtn');
+        const mobileMenu = document.getElementById('mobileMenu');
+        mobileMenuBtn.addEventListener('click', () => mobileMenu.classList.toggle('open'));
+    </script>
+</body>
+
+</html>

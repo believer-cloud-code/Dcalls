@@ -1,0 +1,21 @@
+{
+  "name": "Dcalls",
+  "short_name": "Dcalls",
+  "description": "Next-gen cross-platform messaging and calling app with Damai AI.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#4f46e5",
+  "icons": [
+    {
+      "src": "/dcalls.ico",
+      "sizes": "192x192",
+      "type": "image/x-icon"
+    },
+    {
+      "src": "/dcalls.ico",
+      "sizes": "512x512",
+      "type": "image/x-icon"
+    }
+  ]
+}
