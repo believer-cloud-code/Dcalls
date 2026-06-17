@@ -1,5 +1,5 @@
 <div align="center">
-  <img width="1200" height="475" alt="Dcalls Banner" src="" />
+  <img width="1200" height="475" alt="Dcalls Banner" src="docs\images\dcalls-banner" />
 </div>
 
 # Dcalls
