@@ -5,7 +5,7 @@ import { DcallsIcon } from './DcallsIcon';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { GoogleGenAI, Modality } from "@google/genai";
-import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, doc, getDoc, updateDoc, setDoc } from 'firebase/firestore';
+import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, doc, getDoc, updateDoc, setDoc, writeBatch } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 import { handleFirestoreError, OperationType } from '../utils/firestoreErrorHandler';
 import { databaseService } from '../services/databaseService';
@@ -62,6 +62,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const [uploadingFile, setUploadingFile] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const prevMessagesRef = useRef<Message[] | null>(null);
+  const readMarkedRef = useRef<Set<string>>(new Set());
 
   const handleFeedback = async (messageId: string, isPositive: boolean) => {
     if (!chatId || !auth.currentUser) return;
@@ -184,11 +186,18 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     const q = query(messagesRef, orderBy('timestamp', 'asc'));
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const msgs = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as Message[];
-      setMessages(msgs);
+      const newMsgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Message[];
+
+      // Quick stability checks: if last id unchanged and length unchanged, skip setState
+      const prev = prevMessagesRef.current;
+      const lastPrevId = prev && prev.length > 0 ? prev[prev.length - 1].id : null;
+      const lastNewId = newMsgs.length > 0 ? newMsgs[newMsgs.length - 1].id : null;
+      if (prev && prev.length === newMsgs.length && lastPrevId === lastNewId) {
+        return;
+      }
+
+      prevMessagesRef.current = newMsgs;
+      setMessages(newMsgs);
     }, (error) => {
       handleFirestoreError(error, OperationType.GET, messagesRef.path);
     });
@@ -242,21 +251,50 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     return () => unsubscribe();
   }, [chatId, propContactName, propContactPhoto, propContactId]);
 
-  // Mark messages as read
+  // Mark messages as read (idempotent + deduplicated)
   useEffect(() => {
     if (!chatId || !auth.currentUser || messages.length === 0) return;
 
-    const unreadMessages = messages.filter(m => m.senderId !== auth.currentUser?.uid && m.status !== 'read');
+    const toMark = messages.filter(m =>
+      m.senderId !== auth.currentUser?.uid &&
+      m.status !== 'read' &&
+      !readMarkedRef.current.has(m.id)
+    );
 
-    unreadMessages.forEach(async (msg) => {
-      try {
-        await updateDoc(doc(db, 'chats', chatId, 'messages', msg.id), {
-          status: 'read'
-        });
-      } catch (err) {
-        console.error("Error marking message as read:", err);
+    if (toMark.length === 0) return;
+
+    (async () => {
+      if (toMark.length === 1) {
+        const msg = toMark[0];
+        try {
+          await updateDoc(doc(db, 'chats', chatId, 'messages', msg.id), { status: 'read' });
+          readMarkedRef.current.add(msg.id);
+        } catch (err) {
+          console.error("Error marking message as read:", err);
+        }
+        return;
       }
-    });
+
+      // Use a batched write for multiple messages to reduce partial failures and be more efficient
+      try {
+        const batch = writeBatch(db);
+        toMark.forEach(msg => {
+          batch.update(doc(db, 'chats', chatId, 'messages', msg.id), { status: 'read' });
+        });
+        await batch.commit();
+        toMark.forEach(msg => readMarkedRef.current.add(msg.id));
+      } catch (err) {
+        console.error('Batch marking messages as read failed, falling back to sequential updates:', err);
+        for (const msg of toMark) {
+          try {
+            await updateDoc(doc(db, 'chats', chatId, 'messages', msg.id), { status: 'read' });
+            readMarkedRef.current.add(msg.id);
+          } catch (e) {
+            console.error('Error marking message as read during fallback:', e);
+          }
+        }
+      }
+    })();
   }, [chatId, messages]);
 
   // Update current user's lastSeen periodically
@@ -345,11 +383,24 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     setInputText('');
 
     try {
+      // Optimistic UI: create a temporary local message so UI is instant
+      const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
+      const optimisticMsg: Message = {
+        id: tempId,
+        chatId,
+        senderId: auth.currentUser.uid,
+        text: text,
+        timestamp: new Date() as any,
+        type: 'text',
+        status: 'sending'
+      };
+
+      setMessages(prev => [...prev, optimisticMsg]);
+
       const crypto = await ensureEncryptionReady();
       const messagesRef = collection(db, 'chats', chatId, 'messages');
 
-      // For E2EE, we'd normally encrypt here. 
-      // For this demo, we'll mark it as encrypted and use a symmetric fallback if partner key isn't ready.
+      // Encrypt if partner has keys
       let encryptedText = text;
       let isEncrypted = false;
       let encryptionMethod: 'rsa' | 'symmetric' | undefined;
@@ -373,30 +424,41 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             }
           } catch (e) {
             console.error("Encryption failed", e);
+            // keep plaintext in optimistic UI, but send encryptedText fallback
           }
         }
       }
 
-      const messageRef = await addDoc(messagesRef, {
-        chatId,
-        senderId: auth.currentUser.uid,
-        text: encryptedText,
-        isEncrypted,
-        ...(encryptionMethod ? { encryptionMethod } : {}),
-        timestamp: serverTimestamp(),
-        type: 'text',
-        status: 'sent'
-      });
+      try {
+        const messageRef = await addDoc(messagesRef, {
+          chatId,
+          senderId: auth.currentUser.uid,
+          text: encryptedText,
+          isEncrypted,
+          ...(encryptionMethod ? { encryptionMethod } : {}),
+          timestamp: serverTimestamp(),
+          type: 'text',
+          status: 'sent'
+        });
 
-      if (isEncrypted && encryptionMethod === 'rsa') {
-        sentPlaintextCache.set(messageRef.id, text);
+        // Store plaintext locally for sender if RSA
+        if (isEncrypted && encryptionMethod === 'rsa') {
+          sentPlaintextCache.set(messageRef.id, text);
+        }
+
+        // Reconcile optimistic message: replace tempId with server id and mark sent
+        setMessages(prev => prev.map(m => m.id === tempId ? ({ ...m, id: messageRef.id, status: 'sent' }) : m));
+
+        // Update last message in chat doc (store unencrypted or a placeholder for privacy)
+        await updateDoc(doc(db, 'chats', chatId), {
+          lastMessage: isEncrypted ? "🔒 Encrypted Message" : text,
+          lastMessageTime: serverTimestamp()
+        });
+      } catch (err) {
+        console.error('Error sending message:', err);
+        // mark optimistic message as failed
+        setMessages(prev => prev.map(m => m.id === tempId ? ({ ...m, status: 'failed' }) : m));
       }
-
-      // Update last message in chat doc (store unencrypted or a placeholder for privacy)
-      await updateDoc(doc(db, 'chats', chatId), {
-        lastMessage: isEncrypted ? "🔒 Encrypted Message" : text,
-        lastMessageTime: serverTimestamp()
-      });
 
       // Check for @Damai commands
       const lowerText = text.toLowerCase();

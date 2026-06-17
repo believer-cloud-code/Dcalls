@@ -1,0 +1,15 @@
+{
+  "version": "2",
+  "projectNumber": "118577870629",
+  "projectId": "dcalls-2d01d",
+  "appId": "1:118577870629:web:86c9fae1a3a8839a49cccc",
+  "realtimeDatabaseInstanceUri": "https://dcalls-2d01d-default-rtdb.firebaseio.com",
+  "realtimeDatabaseUrl": "",
+  "storageBucket": "dcalls-2d01d.firebasestorage.app",
+  "locationId": "",
+  "apiKey": "AIzaSyD9FOWIEsc3Rz00zPqRgWaCa6JWsC5AFRE",
+  "authDomain": "dcalls-2d01d.firebaseapp.com",
+  "messagingSenderId": "118577870629",
+  "measurementId": "G-PZXT7YQRP4",
+  "recaptchaSiteKey": ""
+}

@@ -32,7 +32,8 @@ export interface Message {
   isEncrypted?: boolean;
   encryptionMethod?: 'rsa' | 'symmetric';
   fileUrl?: string;
-  status?: 'sent' | 'delivered' | 'read';
+  // Extended statuses include optimistic and error states used by the UI
+  status?: 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
   feedback?: 'positive' | 'negative';
 }
 

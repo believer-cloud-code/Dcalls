@@ -72,22 +72,29 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({ searchQuery }) => {
         }
         if (!partnerUid) return;
 
-        let chatId: string | null = null;
-
         // Check if chat already exists
-
         const existingChat = chats.find(
             chat => chat.participants.includes(partnerUid) &&
                 chat.participants.includes(auth.currentUser?.uid || '')
         );
 
         if (existingChat) {
-            chatId = existingChat.id;
-        }
-
-        if (chatId) {
-            setActiveChat(chatId);
+            setActiveChat(existingChat.id);
             setActiveChatPartner(contact);
+        } else {
+            // Create new chat with the contact
+            try {
+                const newChat = await addDoc(collection(db, 'chats'), {
+                    participants: [auth.currentUser?.uid, partnerUid],
+                    type: 'private',
+                    lastMessage: '',
+                    lastMessageTime: serverTimestamp()
+                });
+                setActiveChat(newChat.id);
+                setActiveChatPartner(contact);
+            } catch (error) {
+                console.error('Error creating new chat:', error);
+            }
         }
     };
 

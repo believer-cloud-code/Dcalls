@@ -149,7 +149,7 @@ export const CallingScreen: React.FC<CallingScreenProps> = ({ onEnd, type, conta
       }
       if (remoteAudioRef.current) {
         remoteAudioRef.current.srcObject = remoteStream;
-        void remoteAudioRef.current.play().catch(() => {});
+        void remoteAudioRef.current.play().catch(() => { });
       }
     }
   }, [isVideoOff, localStream, remoteStream]);
@@ -307,10 +307,13 @@ export const CallingScreen: React.FC<CallingScreenProps> = ({ onEnd, type, conta
         // Set up error handler
         webrtc.setOnError((error) => {
           console.error("Call error:", error);
-          setErrorMessage(error);
+          // Delay error message display by 60 seconds to allow connection attempts
           setTimeout(() => {
-            onEnd();
-          }, 2000);
+            setErrorMessage(error);
+            setTimeout(() => {
+              onEnd();
+            }, 2000);
+          }, 60000);
         });
 
         webrtc.setOnConnected(() => {
@@ -450,41 +453,6 @@ export const CallingScreen: React.FC<CallingScreenProps> = ({ onEnd, type, conta
 
   return (
     <div className="fixed inset-0 bg-[#1a1a1a] z-[200] flex flex-col overflow-hidden text-white font-sans">
-      {/* Error Overlay */}
-      <AnimatePresence>
-        {errorMessage && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.95 }}
-            className="fixed inset-0 z-[300] flex items-center justify-center bg-black/60 backdrop-blur-sm"
-          >
-            <motion.div
-              className="bg-red-900/30 border border-red-500/50 rounded-3xl p-8 max-w-sm w-full mx-4 text-center shadow-2xl shadow-red-500/20"
-            >
-              <div className="flex justify-center mb-4">
-                <div className="p-4 bg-red-500/20 rounded-full">
-                  <Phone size={48} className="text-red-500" />
-                </div>
-              </div>
-              <h2 className="text-2xl font-bold mb-2 text-red-400">{errorMessage}</h2>
-              <p className="text-sm text-gray-300 mb-6">
-                {errorMessage === 'Unable to connect'
-                  ? 'Unable to establish connection after 30 seconds. Please check your network and try again.'
-                  : 'The call was not answered within the time limit. They may be busy or unavailable.'}
-              </p>
-              <motion.button
-                onClick={onEnd}
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                className="w-full bg-red-600 hover:bg-red-500 text-white font-bold py-3 rounded-xl transition-colors"
-              >
-                Close
-              </motion.button>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       {/* Top Bar */}
       <div className="flex items-center justify-between px-4 py-2 bg-black/40 backdrop-blur-md z-20">

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Dcalls</string>
+    <string name="title_activity_main">Dcalls</string>
+    <string name="package_name">com.dcalls.app</string>
+    <string name="custom_url_scheme">com.dcalls.app</string>
+</resources>

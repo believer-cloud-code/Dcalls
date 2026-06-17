@@ -8,7 +8,6 @@
     <link rel="icon" href="dcalls.ico" type="image/x-icon">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap"
         rel="stylesheet">
-    <script src="/dcalls-config.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://unpkg.com/aos@2.3.1/dist/aos.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/particles.js/2.0.0/particles.min.js"></script>
@@ -477,7 +476,7 @@
                                     class="faq-arrow">▼</span></button>
                             <div class="faq-answer">Dcalls is available on iOS, Android, Windows, macOS, and Web. Your
                                 conversations sync seamlessly across all devices. The web version requires no download —
-                                just log in at the <a href="#" id="helpOpenAppLink" class="text-purple-400 underline">Dcalls web app</a> and start calling.</div>
+                                just log in at app.dcalls.com and start calling.</div>
                         </div>
                         <div class="faq-item">
                             <button class="faq-question">Is Dcalls free to use?<span class="faq-arrow">▼</span></button>
@@ -912,13 +911,6 @@
             this.reset();
             document.querySelectorAll('input[name="feedbackType"]').forEach(r => r.checked = false);
             document.getElementById('feedbackContactConsent').checked = false;
-        });
-
-        document.getElementById('helpOpenAppLink')?.addEventListener('click', function (e) {
-            e.preventDefault();
-            if (window.DcallsUrls) window.DcallsUrls.openWebApp(true);
-            else location.href = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
-                ? 'http://localhost:3000' : 'https://app.dcalls.com';
         });
 
         // Tag selection visual feedback

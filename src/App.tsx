@@ -33,10 +33,11 @@ import { authService, UnifiedUser } from './services/authService';
 import { DcallsIcon } from './components/DcallsIcon';
 import { lookupUidByPhone } from './services/contactService';
 import { openMarketing } from './config/urls';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { FeatureErrorBoundary } from './components/FeatureErrorBoundary';
 
 export default function App() {
   const [user, setUser] = useState<UnifiedUser | null>(null);
-  const [loading, setLoading] = useState(false);
   const [isRegistered, setIsRegistered] = useState(false);
   const [showPhoneAuth, setShowPhoneAuth] = useState(false);
   const [activeTab, setActiveTab] = useState<TabType>('chats');
@@ -52,6 +53,8 @@ export default function App() {
   const [registrationData, setRegistrationData] = useState<any>(null);
 
   const loadUserProfile = async (uid: string) => {
+    let isMounted = true;
+
     try {
       console.log("Loading user profile...");
 
@@ -69,19 +72,22 @@ export default function App() {
         timeoutPromise,
       ]);
 
-      const { exists, data } = result;
+      if (!isMounted) return;
 
+      const { exists, data } = result;
       setIsRegistered(exists || !!(data as { isRegistered?: boolean })?.isRegistered);
 
       console.log("Profile loaded");
 
     } catch (error) {
       console.error("Profile loading failed:", error);
-
-      // IMPORTANT:
-      // app still continues
+      if (!isMounted) return;
       setIsRegistered(false);
     }
+
+    return () => {
+      isMounted = false;
+    };
   };
 
   useEffect(() => {
@@ -103,19 +109,26 @@ export default function App() {
 
   useEffect(() => {
     console.log("Initializing auth...");
+    let isMounted = true;
 
     const unsubscribe = authService.onAuthStateChanged((user) => {
       console.log("Auth state changed:", user);
+      if (!isMounted) return;
 
       setUser(user || null);
 
       // Profile loading happens separately
       if (user) {
         loadUserProfile(user.uid);
+      } else {
+        setIsRegistered(false);
       }
     });
 
-    return () => unsubscribe();
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
   }, []);
 
 
@@ -168,27 +181,54 @@ export default function App() {
       limit(1)
     );
 
+    let isMounted = true;
+    let pendingFetch: Promise<any> | null = null;
+
     const unsubscribe = onSnapshot(incomingQuery, async (snapshot) => {
       if (!snapshot.empty) {
         const callData = snapshot.docs[0].data();
         const callId = snapshot.docs[0].id;
 
-        // Fetch caller info
-        const callerDoc = await getDoc(doc(db, 'users', callData.callerId));
-        const callerData = callerDoc.data();
+        // Create a unique fetch promise
+        const fetchPromise = (async () => {
+          try {
+            const callerDoc = await getDoc(doc(db, 'users', callData.callerId));
+            const callerData = callerDoc.data();
+            return {
+              id: callId,
+              ...callData,
+              callerName: callerData?.displayName || 'Unknown Caller',
+              callerPhoto: callerData?.photoURL
+            };
+          } catch (error) {
+            console.error('Error fetching caller info:', error);
+            return {
+              id: callId,
+              ...callData,
+              callerName: 'Unknown Caller',
+              callerPhoto: undefined
+            };
+          }
+        })();
 
-        setIncomingCall({
-          id: callId,
-          ...callData,
-          callerName: callerData?.displayName || 'Unknown Caller',
-          callerPhoto: callerData?.photoURL
-        });
+        pendingFetch = fetchPromise;
+
+        const result = await fetchPromise;
+        // Only set state if this is still the latest fetch and component is mounted
+        if (isMounted && pendingFetch === fetchPromise) {
+          setIncomingCall(result);
+        }
       } else {
-        setIncomingCall(null);
+        if (isMounted) {
+          setIncomingCall(null);
+        }
       }
     });
 
-    return () => unsubscribe();
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
   }, [user, isRegistered]);
 
   const handleLogin = async () => {
@@ -209,56 +249,83 @@ export default function App() {
     }
   };
 
-  const resolveContactUid = async (contact: Contact): Promise<string | undefined> => {
+  const resolveContactUid = async (contact: Contact, signal?: AbortSignal): Promise<string | undefined> => {
     if (contact.uid) return contact.uid;
     if (contact.phoneNumber) {
-      const uid = await lookupUidByPhone(contact.phoneNumber);
-      return uid ?? undefined;
+      try {
+        const uid = await lookupUidByPhone(contact.phoneNumber);
+        if (signal?.aborted) return undefined;
+        return uid ?? undefined;
+      } catch (error) {
+        if (signal?.aborted) return undefined;
+        console.error('Error looking up contact UID:', error);
+        return undefined;
+      }
     }
     return undefined;
   };
 
   const handleStartCall = async (contact: Contact, type: 'voice' | 'video') => {
-    const contactId = await resolveContactUid(contact);
-    if (!contactId) {
-      console.error('Cannot call: contact is not registered on Dcalls');
-      return;
+    const abortController = new AbortController();
+    try {
+      const contactId = await resolveContactUid(contact, abortController.signal);
+      if (!contactId) {
+        console.error('Cannot call: contact is not registered on Dcalls');
+        return;
+      }
+      if (abortController.signal.aborted) return;
+
+      console.log(`[Call] Starting ${type} call to ${contactId} (${contact.displayName})`);
+      setActiveCall({
+        type,
+        contactName: contact.displayName,
+        contactPhoto: contact.photoURL,
+        contactId,
+      });
+    } catch (error) {
+      if (!abortController.signal.aborted) {
+        console.error('Error starting call:', error);
+      }
     }
-    setActiveCall({
-      type,
-      contactName: contact.displayName,
-      contactPhoto: contact.photoURL,
-      contactId,
-    });
+    return () => abortController.abort();
   };
 
   const handleStartChat = async (contact: Contact) => {
-    if (!user) return;
-    const partnerUid = await resolveContactUid(contact);
-    if (!partnerUid) return;
+    const abortController = new AbortController();
+    if (!user) return () => abortController.abort();
 
-    // Check if chat already exists
-    const existingChat = chats.find(c =>
-      c.type === 'private' && c.participants.includes(partnerUid)
-    );
-
-    if (existingChat) {
-      setActiveTab('chats');
-      return;
-    }
-
-    // Create new chat
     try {
+      const partnerUid = await resolveContactUid(contact, abortController.signal);
+      if (!partnerUid) return;
+      if (abortController.signal.aborted) return;
+
+      // Check if chat already exists
+      const existingChat = chats.find(c =>
+        c.type === 'private' && c.participants.includes(partnerUid)
+      );
+
+      if (existingChat) {
+        setActiveTab('chats');
+        return;
+      }
+
+      // Create new chat
       await addDoc(collection(db, 'chats'), {
         participants: [user.uid, partnerUid],
         type: 'private',
         lastMessage: '',
         lastMessageTime: serverTimestamp()
       });
-      setActiveTab('chats');
+
+      if (!abortController.signal.aborted) {
+        setActiveTab('chats');
+      }
     } catch (error) {
-      console.error("Error creating chat:", error);
+      if (!abortController.signal.aborted) {
+        console.error("Error creating chat:", error);
+      }
     }
+    return () => abortController.abort();
   };
 
   const filteredCalls = calls.filter(call => {
@@ -269,34 +336,44 @@ export default function App() {
   const renderTabContent = () => {
     switch (activeTab) {
       case 'chats':
-        return <ChatScreen searchQuery={searchQuery} />;
+        return (
+          <FeatureErrorBoundary featureName="Messages">
+            <ChatScreen searchQuery={searchQuery} />
+          </FeatureErrorBoundary>
+        );
       case 'calls':
-        return <CallLog calls={filteredCalls} />;
+        return (
+          <FeatureErrorBoundary featureName="Call History">
+            <CallLog calls={filteredCalls} />
+          </FeatureErrorBoundary>
+        );
       case 'contacts':
         return (
-          <ContactsTab
-            onCall={handleStartCall}
-            onMessage={handleStartChat}
-            onAddContact={() => setIsAddingContact(true)}
-            searchQuery={searchQuery}
-          />
+          <FeatureErrorBoundary featureName="Contacts">
+            <ContactsTab
+              onCall={handleStartCall}
+              onMessage={handleStartChat}
+              onAddContact={() => setIsAddingContact(true)}
+              searchQuery={searchQuery}
+            />
+          </FeatureErrorBoundary>
         );
       case 'damai':
-        return <DamaiTab />;
+        return (
+          <FeatureErrorBoundary featureName="Damai Assistant">
+            <DamaiTab />
+          </FeatureErrorBoundary>
+        );
       case 'settings':
-        return <SettingsTab user={user} />;
+        return (
+          <FeatureErrorBoundary featureName="Settings">
+            <SettingsTab user={user} />
+          </FeatureErrorBoundary>
+        );
       default:
         return null;
     }
   };
-
-  if (loading) {
-    return (
-      <div className="h-screen bg-[#0a0a0a] flex items-center justify-center">
-        <div className="w-12 h-12 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin" />
-      </div>
-    );
-  }
 
   if (!user) {
     return (
@@ -352,26 +429,36 @@ export default function App() {
 
         <AnimatePresence>
           {showRegistration && (
-            <RegistrationScreen
-              onComplete={(data) => {
-                setRegistrationData(data);
-                setShowRegistration(false);
-                setShowPhoneAuth(true);
-              }}
-              onBack={() => setShowRegistration(false)}
-            />
+            <FeatureErrorBoundary
+              featureName="Registration"
+              onReset={() => setShowRegistration(false)}
+            >
+              <RegistrationScreen
+                onComplete={(data) => {
+                  setRegistrationData(data);
+                  setShowRegistration(false);
+                  setShowPhoneAuth(true);
+                }}
+                onBack={() => setShowRegistration(false)}
+              />
+            </FeatureErrorBoundary>
           )}
           {showPhoneAuth && (
-            <PhoneAuthScreen
-              phoneNumber={registrationData?.phoneNumber}
-              onSuccess={() => {
-                setShowPhoneAuth(false);
-              }}
-              onBack={() => {
-                setShowPhoneAuth(false);
-                if (registrationData) setShowRegistration(true);
-              }}
-            />
+            <FeatureErrorBoundary
+              featureName="Phone Authentication"
+              onReset={() => setShowPhoneAuth(false)}
+            >
+              <PhoneAuthScreen
+                phoneNumber={registrationData?.phoneNumber}
+                onSuccess={() => {
+                  setShowPhoneAuth(false);
+                }}
+                onBack={() => {
+                  setShowPhoneAuth(false);
+                  if (registrationData) setShowRegistration(true);
+                }}
+              />
+            </FeatureErrorBoundary>
           )}
         </AnimatePresence>
 
@@ -434,18 +521,20 @@ export default function App() {
 
   return (
     <>
-      <Layout
-        activeTab={activeTab}
-        onTabChange={(tab) => {
-          setActiveTab(tab);
-          setSearchQuery('');
-        }}
-        title={getTitle()}
-        searchQuery={searchQuery}
-        onSearchChange={setSearchQuery}
-      >
-        {renderTabContent()}
-      </Layout>
+      <FeatureErrorBoundary featureName="Layout">
+        <Layout
+          activeTab={activeTab}
+          onTabChange={(tab) => {
+            setActiveTab(tab);
+            setSearchQuery('');
+          }}
+          title={getTitle()}
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+        >
+          {renderTabContent()}
+        </Layout>
+      </FeatureErrorBoundary>
 
       <AnimatePresence>
         {isOffline && (
@@ -460,17 +549,22 @@ export default function App() {
           </motion.div>
         )}
         {activeCall && (
-          <CallingScreen
-            type={activeCall.type}
-            contactName={activeCall.contactName}
-            contactPhoto={activeCall.contactPhoto}
-            contactId={activeCall.contactId}
-            incomingCallId={activeCall.incomingCallId}
-            onEnd={() => {
-              setActiveCall(null);
-              setActiveTab('contacts');
-            }}
-          />
+          <FeatureErrorBoundary
+            featureName="Call"
+            onReset={() => setActiveCall(null)}
+          >
+            <CallingScreen
+              type={activeCall.type}
+              contactName={activeCall.contactName}
+              contactPhoto={activeCall.contactPhoto}
+              contactId={activeCall.contactId}
+              incomingCallId={activeCall.incomingCallId}
+              onEnd={() => {
+                setActiveCall(null);
+                setActiveTab('contacts');
+              }}
+            />
+          </FeatureErrorBoundary>
         )}
         {incomingCall && (
           <motion.div
@@ -511,6 +605,9 @@ export default function App() {
                 </button>
                 <button
                   onClick={() => {
+                    console.log(`[Call] Accepting incoming call ${incomingCall.id} from ${incomingCall.callerId}`);
+                    // Set incoming to null first to prevent both modals rendering
+                    setIncomingCall(null);
                     setActiveCall({
                       type: incomingCall.type,
                       contactName: incomingCall.callerName,
@@ -518,7 +615,6 @@ export default function App() {
                       contactId: incomingCall.callerId,
                       incomingCallId: incomingCall.id
                     });
-                    setIncomingCall(null);
                   }}
                   className="w-16 h-16 bg-emerald-500 rounded-full flex items-center justify-center text-white shadow-xl shadow-emerald-500/20 active:scale-90 transition-all"
                 >
@@ -529,7 +625,12 @@ export default function App() {
           </motion.div>
         )}
         {isAddingContact && (
-          <AddContactScreen onBack={() => setIsAddingContact(false)} />
+          <FeatureErrorBoundary
+            featureName="Add Contact"
+            onReset={() => setIsAddingContact(false)}
+          >
+            <AddContactScreen onBack={() => setIsAddingContact(false)} />
+          </FeatureErrorBoundary>
         )}
       </AnimatePresence>
 

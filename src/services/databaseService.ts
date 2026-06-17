@@ -12,6 +12,7 @@ import {
   updateDoc,
   doc,
   getDocs,
+  query,
   DocumentSnapshot,
   DocumentData
 } from 'firebase/firestore';
@@ -82,8 +83,10 @@ class DatabaseService {
 
     try {
       const colRef = collection(firebaseDb, path);
-      const snapshot = await getDocs(colRef);
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      // If constraints provided, apply them to the query
+      const q = constraints && constraints.length > 0 ? query(colRef, ...constraints) : colRef;
+      const snapshot = await getDocs(q as any);
+      const data = snapshot.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
       this.cache.set(`collection_${path}`, data);
       return data;
     } catch (e: any) {

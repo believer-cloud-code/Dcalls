@@ -9,6 +9,8 @@ import {
   serverTimestamp,
   DocumentReference,
   Unsubscribe,
+  query,
+  orderBy,
 } from 'firebase/firestore';
 import { db } from '../firebase';
 
@@ -59,7 +61,7 @@ export class WebRTCService {
   private pendingCandidates: RTCIceCandidateInit[] = [];
   private isEnding = false;
 
-  private constructor() {}
+  private constructor() { }
 
   static getInstance(): WebRTCService {
     if (!WebRTCService.instance) {
@@ -73,16 +75,21 @@ export class WebRTCService {
 
     this.pc.onconnectionstatechange = () => {
       const state = this.pc?.connectionState;
+      console.log(`[WebRTC] Connection state changed: ${state}`);
       if (state === 'connected') {
+        console.log(`[WebRTC] Call ${this.callId}: Connected!`);
         this.clearConnectionTimeout();
         this.onConnectedCallback?.();
       } else if (state === 'failed') {
+        console.log(`[WebRTC] Call ${this.callId}: Connection failed`);
         this.onErrorCallback?.('Unable to connect');
         void this.endCall();
       } else if (state === 'disconnected') {
+        console.log(`[WebRTC] Call ${this.callId}: Disconnected, waiting for recovery...`);
         // Allow ICE to recover briefly before failing
         setTimeout(() => {
           if (this.pc?.connectionState === 'disconnected') {
+            console.log(`[WebRTC] Call ${this.callId}: Still disconnected after 5s, ending call`);
             this.onErrorCallback?.('Unable to connect');
             void this.endCall();
           }
@@ -92,6 +99,7 @@ export class WebRTCService {
 
     this.pc.oniceconnectionstatechange = () => {
       const iceState = this.pc?.iceConnectionState;
+      console.log(`[WebRTC] ICE connection state changed: ${iceState}`);
       if (iceState === 'connected' || iceState === 'completed') {
         this.clearConnectionTimeout();
         this.onConnectedCallback?.();
@@ -103,7 +111,7 @@ export class WebRTCService {
   }
 
   private initializePeerConnection() {
-    this.closePeerConnection(false);
+    this.internalCleanup(false);
     this.pc = new RTCPeerConnection(servers);
     this.pendingCandidates = [];
     this.attachConnectionHandlers();
@@ -113,12 +121,14 @@ export class WebRTCService {
     if (!this.pc || !init.candidate) return;
 
     if (!this.pc.remoteDescription) {
+      console.log(`[WebRTC] Pending ICE candidate (no remote description yet): ${init.candidate}`);
       this.pendingCandidates.push(init);
       return;
     }
 
     try {
       await this.pc.addIceCandidate(new RTCIceCandidate(init));
+      console.log(`[WebRTC] Added ICE candidate: ${init.candidate}`);
     } catch (error) {
       console.warn('addIceCandidate failed:', error);
     }
@@ -137,14 +147,23 @@ export class WebRTCService {
     candidatesCol: ReturnType<typeof collection>,
     localUserId: string
   ): Unsubscribe {
-    return onSnapshot(candidatesCol, (snapshot) => {
-      snapshot.docChanges().forEach((change) => {
-        if (change.type !== 'added') return;
-        const data = change.doc.data();
-        if (data.senderId === localUserId) return;
-        void this.addIceCandidateSafe(stripCandidateForIce(data));
-      });
-    });
+    // Subscribe to candidates ordered by creation time to avoid processing unordered batches
+    const q = query(candidatesCol, orderBy('createdAt', 'asc'));
+    return onSnapshot(
+      q,
+      (snapshot) => {
+        snapshot.docChanges().forEach((change) => {
+          if (change.type !== 'added') return;
+          const data = change.doc.data();
+          if (data.senderId === localUserId) return;
+          console.log(`[WebRTC] Received ICE candidate from remote peer`);
+          void this.addIceCandidateSafe(stripCandidateForIce(data));
+        });
+      },
+      (error) => {
+        console.error('[WebRTC] Error listening to ICE candidates:', error);
+      }
+    );
   }
 
   private waitForOfferSdp(
@@ -194,10 +213,29 @@ export class WebRTCService {
         this.onErrorCallback?.('Unable to connect');
         void this.endCall();
       }
-    }, 45000);
+    }, 75000); // 75 seconds
+
+    // Monitor connection state changes to clear timeout when successful
+    if (this.pc) {
+      const checkConnection = () => {
+        const connected =
+          this.pc?.connectionState === 'connected' ||
+          this.pc?.iceConnectionState === 'connected' ||
+          this.pc?.iceConnectionState === 'completed';
+        if (connected) {
+          this.clearConnectionTimeout();
+          this.onConnectedCallback?.();
+          this.pc?.removeEventListener('connectionstatechange', checkConnection);
+          this.pc?.removeEventListener('iceconnectionstatechange', checkConnection);
+        }
+      };
+      this.pc.addEventListener('connectionstatechange', checkConnection);
+      this.pc.addEventListener('iceconnectionstatechange', checkConnection);
+    }
   }
 
-  private closePeerConnection(clearCallbacks = true) {
+
+  private internalCleanup(clearCallbacks = true) {
     if (this.connectionTimeout) clearTimeout(this.connectionTimeout);
     if (this.unansweredTimeout) clearTimeout(this.unansweredTimeout);
     this.connectionTimeout = null;
@@ -224,11 +262,12 @@ export class WebRTCService {
       this.onErrorCallback = null;
       this.onConnectedCallback = null;
     }
+
+    this.callId = null;
   }
 
   cleanup() {
-    this.closePeerConnection(true);
-    this.callId = null;
+    this.internalCleanup(true);
     this.isEnding = false;
   }
 
@@ -263,10 +302,15 @@ export class WebRTCService {
       }
     } catch (err) {
       console.warn('Could not acquire video, falling back to audio only', err);
-      this.localStream = await navigator.mediaDevices.getUserMedia({
-        video: false,
-        audio: true,
-      });
+      try {
+        this.localStream = await navigator.mediaDevices.getUserMedia({
+          video: false,
+          audio: true,
+        });
+      } catch (fallbackErr) {
+        console.error('Failed to acquire audio stream:', fallbackErr);
+        throw new Error('Unable to access microphone');
+      }
     }
 
     this.remoteStream = new MediaStream();
@@ -278,12 +322,14 @@ export class WebRTCService {
     this.pc!.ontrack = (event) => {
       const stream = event.streams?.[0];
       if (!stream) return;
+      console.log(`[WebRTC] Remote track received: ${event.track.kind}`);
       stream.getTracks().forEach((track) => {
         const exists = this.remoteStream
           ?.getTracks()
           .some((t) => t.id === track.id);
         if (!exists) {
           this.remoteStream?.addTrack(track);
+          console.log(`[WebRTC] Added ${track.kind} track to remote stream`);
         }
       });
     };
@@ -302,14 +348,16 @@ export class WebRTCService {
     const candidatesCol = collection(callDoc, 'candidates');
 
     this.callId = callDoc.id;
+    console.log(`[WebRTC] Creating call ${this.callId} from ${callerId} to ${receiverId} (${type})`);
 
     this.pc.onicecandidate = (event) => {
       if (!event.candidate) return;
-      void addDoc(candidatesCol, {
+      console.log(`[WebRTC] Caller ICE candidate: ${event.candidate.candidate}`);
+      addDoc(candidatesCol, {
         ...event.candidate.toJSON(),
         senderId: callerId,
         createdAt: serverTimestamp(),
-      }).catch((e) => console.error('Failed to send ICE candidate', e));
+      }).catch((e) => console.error('[WebRTC] Failed to send ICE candidate:', e));
     };
 
     const offerDescription = await this.pc.createOffer({
@@ -331,48 +379,69 @@ export class WebRTCService {
       type: offerDescription.type,
       createdAt: serverTimestamp(),
     });
+    console.log(`[WebRTC] Call ${this.callId}: Offer written to Firestore`);
 
-    this.unansweredTimeout = setTimeout(async () => {
-      const currentCall = await getDoc(callDoc);
-      if (currentCall.exists() && currentCall.data().status === 'ringing') {
-        this.onErrorCallback?.('Call not answered');
-        await this.endCall();
-      }
-    }, 60000);
+    // Subscribe to ICE candidates immediately (before answer arrives)
+    const candidatesUnsub = this.subscribeCandidates(candidatesCol, callerId);
+    this.unsubscribers.push(candidatesUnsub);
+    console.log(`[WebRTC] Call ${this.callId}: Subscribed to ICE candidates`);
 
-    let candidatesUnsub: Unsubscribe | null = null;
+    this.unansweredTimeout = setTimeout(() => {
+      (async () => {
+        try {
+          const currentCall = await getDoc(callDoc);
+          if (currentCall.exists() && currentCall.data()?.status === 'ringing') {
+            console.log(`[WebRTC] Call ${this.callId}: No answer received after 100 seconds`);
+            this.onErrorCallback?.('Call not answered');
+            await this.endCall();
+          }
+        } catch (error) {
+          console.error('Error checking unanswered call:', error);
+        }
+      })().catch((error) => {
+        console.error('[WebRTC] Unhandled error in unanswered timeout:', error);
+      });
+    }, 100000); // 100 seconds
 
-    const unsubAnswer = onSnapshot(answerDoc, async (snapshot) => {
-      try {
-        const data = snapshot.data();
-        if (this.pc?.currentRemoteDescription || !data?.sdp) return;
+    const unsubAnswer = onSnapshot(
+      answerDoc,
+      (snapshot) => {
+        (async () => {
+          try {
+            const data = snapshot.data();
+            if (this.pc?.currentRemoteDescription || !data?.sdp) return;
 
-        const answerDescription = new RTCSessionDescription({
-          type: data.type as RTCSdpType,
-          sdp: data.sdp,
+            console.log(`[WebRTC] Call ${this.callId}: Answer received`);
+            const answerDescription = new RTCSessionDescription({
+              type: data.type as RTCSdpType,
+              sdp: data.sdp,
+            });
+            await this.pc!.setRemoteDescription(answerDescription);
+            console.log(`[WebRTC] Call ${this.callId}: Remote description set (answer)`);
+            await this.flushPendingCandidates();
+            this.startConnectionTimeout();
+
+            if (this.unansweredTimeout) {
+              clearTimeout(this.unansweredTimeout);
+              this.unansweredTimeout = null;
+            }
+          } catch (error) {
+            console.error('Failed to apply answer:', error);
+            this.onErrorCallback?.('Unable to connect');
+          }
+        })().catch((error) => {
+          console.error('[WebRTC] Unhandled error in answer snapshot listener:', error);
         });
-        await this.pc!.setRemoteDescription(answerDescription);
-        await this.flushPendingCandidates();
-        this.startConnectionTimeout();
-
-        if (!candidatesUnsub) {
-          candidatesUnsub = this.subscribeCandidates(candidatesCol, callerId);
-          this.unsubscribers.push(candidatesUnsub);
-        }
-
-        if (this.unansweredTimeout) {
-          clearTimeout(this.unansweredTimeout);
-          this.unansweredTimeout = null;
-        }
-      } catch (error) {
-        console.error('Failed to apply answer:', error);
+      },
+      (error) => {
+        console.error('[WebRTC] Error listening to answer:', error);
         this.onErrorCallback?.('Unable to connect');
       }
-    });
+    );
 
     this.unsubscribers.push(unsubAnswer);
 
-    return { callId: this.callId, unsubscribers: [unsubAnswer] };
+    return { callId: this.callId, unsubscribers: [unsubAnswer, candidatesUnsub] };
   }
 
   async joinCall(callId: string, userId: string) {
@@ -381,6 +450,7 @@ export class WebRTCService {
     }
 
     this.callId = callId;
+    console.log(`[WebRTC] Joining call ${callId} as user ${userId}`);
     const callDoc = doc(db, 'calls', callId);
     const offerDoc = doc(callDoc, 'offer', 'sdp');
     const answerDoc = doc(callDoc, 'answer', 'sdp');
@@ -388,19 +458,22 @@ export class WebRTCService {
 
     this.pc.onicecandidate = (event) => {
       if (!event.candidate) return;
-      void addDoc(candidatesCol, {
+      console.log(`[WebRTC] Receiver ICE candidate: ${event.candidate.candidate}`);
+      addDoc(candidatesCol, {
         ...event.candidate.toJSON(),
         senderId: userId,
         createdAt: serverTimestamp(),
-      }).catch((e) => console.error('Failed to send ICE candidate', e));
+      }).catch((e) => console.error('[WebRTC] Failed to send ICE candidate:', e));
     };
 
     let offerData: { type: RTCSdpType; sdp: string };
     try {
       const existing = (await getDoc(offerDoc)).data();
       if (existing?.sdp && existing?.type) {
+        console.log(`[WebRTC] Call ${callId}: Offer already exists`);
         offerData = { type: existing.type as RTCSdpType, sdp: existing.sdp as string };
       } else {
+        console.log(`[WebRTC] Call ${callId}: Waiting for offer...`);
         offerData = await this.waitForOfferSdp(offerDoc);
       }
     } catch (error) {
@@ -412,6 +485,7 @@ export class WebRTCService {
     await this.pc.setRemoteDescription(
       new RTCSessionDescription(offerData)
     );
+    console.log(`[WebRTC] Call ${callId}: Remote description set (offer)`);
     await this.flushPendingCandidates();
 
     const answerDescription = await this.pc.createAnswer();
@@ -422,6 +496,7 @@ export class WebRTCService {
       sdp: answerDescription.sdp,
       createdAt: serverTimestamp(),
     });
+    console.log(`[WebRTC] Call ${callId}: Answer written to Firestore`);
 
     await updateDoc(callDoc, { status: 'active' });
 
@@ -434,21 +509,35 @@ export class WebRTCService {
   }
 
   async endCall() {
-    if (this.isEnding) return;
+    if (this.isEnding) {
+      console.log('[WebRTC] endCall already in progress, ignoring duplicate call');
+      return;
+    }
+
     this.isEnding = true;
 
     const id = this.callId;
-    this.cleanup();
 
+    // Clean up local resources immediately
+    this.internalCleanup(true);
+
+    // Update Firestore status, but keep isEnding = true until complete
     if (id) {
       try {
         await updateDoc(doc(db, 'calls', id), {
           status: 'ended',
           endedAt: serverTimestamp(),
         });
+        console.log(`[WebRTC] Call ${id} marked as ended in Firestore`);
       } catch (error) {
-        console.error('Error updating call status:', error);
+        console.error('Error updating call status in Firestore:', error);
+      } finally {
+        // Only reset isEnding after the async operation is complete
+        this.isEnding = false;
       }
+    } else {
+      // No call ID, still reset the flag
+      this.isEnding = false;
     }
   }
 
@@ -484,28 +573,45 @@ export class WebRTCService {
     if (!this.pc) return null;
 
     if (isSharing) {
-      const screenStream = await navigator.mediaDevices.getDisplayMedia({
-        video: true,
-        audio: true,
-      });
+      try {
+        const screenStream = await navigator.mediaDevices.getDisplayMedia({
+          video: true,
+          audio: true,
+        });
 
-      const videoTrack = screenStream.getVideoTracks()[0];
-      const sender = this.pc.getSenders().find((s) => s.track?.kind === 'video');
+        const videoTrack = screenStream.getVideoTracks()[0];
+        const sender = this.pc.getSenders().find((s) => s.track?.kind === 'video');
 
-      if (sender && videoTrack) {
-        await sender.replaceTrack(videoTrack);
-        videoTrack.onended = () => {
-          void this.toggleScreenShare(false);
-        };
+        if (sender && videoTrack) {
+          try {
+            await sender.replaceTrack(videoTrack);
+            videoTrack.onended = () => {
+              void this.toggleScreenShare(false).catch((e) =>
+                console.error('Error stopping screen share:', e)
+              );
+            };
+          } catch (error) {
+            console.error('Error replacing video track:', error);
+            screenStream.getTracks().forEach((track) => track.stop());
+            throw error;
+          }
+        }
+
+        return screenStream;
+      } catch (error) {
+        console.error('Error starting screen share:', error);
+        return null;
       }
-
-      return screenStream;
     }
 
-    const videoTrack = this.localStream?.getVideoTracks()[0];
-    const sender = this.pc.getSenders().find((s) => s.track?.kind === 'video');
-    if (sender && videoTrack) {
-      await sender.replaceTrack(videoTrack);
+    try {
+      const videoTrack = this.localStream?.getVideoTracks()[0];
+      const sender = this.pc.getSenders().find((s) => s.track?.kind === 'video');
+      if (sender && videoTrack) {
+        await sender.replaceTrack(videoTrack);
+      }
+    } catch (error) {
+      console.error('Error stopping screen share:', error);
     }
     return null;
   }
@@ -513,11 +619,17 @@ export class WebRTCService {
   onCallEnded(callback: () => void): (() => void) | undefined {
     if (!this.callId) return undefined;
     const callDoc = doc(db, 'calls', this.callId);
-    const unsub = onSnapshot(callDoc, (snapshot) => {
-      if (snapshot.data()?.status === 'ended') {
-        callback();
+    const unsub = onSnapshot(
+      callDoc,
+      (snapshot) => {
+        if (snapshot.data()?.status === 'ended') {
+          callback();
+        }
+      },
+      (error) => {
+        console.error('[WebRTC] Error monitoring call end status:', error);
       }
-    });
+    );
     this.unsubscribers.push(unsub);
     return unsub;
   }

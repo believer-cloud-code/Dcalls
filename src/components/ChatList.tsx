@@ -137,52 +137,6 @@ export const ChatList: React.FC<ChatListProps> = ({ chats, onChatClick, onStartC
         </>
       )}
 
-      {/* Contacts Section */}
-      {contacts.length > 0 && (
-        <>
-          <div className="px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-gray-600 mt-2">Quick Contacts</div>
-          {contacts.map((contact, index) => (
-            <motion.button
-              key={contact.id}
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: index * 0.05 }}
-              onClick={() => onStartChat?.(contact)}
-              className="w-full flex items-center gap-4 p-4 hover:bg-white/5 active:bg-white/10 transition-colors border-b border-white/5 group text-left"
-            >
-              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-500/20 to-purple-500/20 flex items-center justify-center text-xl font-bold overflow-hidden border border-white/10">
-                {contact.photoURL ? (
-                  <img src={contact.photoURL} alt="" className="w-full h-full object-cover" />
-                ) : (
-                  contact.displayName.charAt(0).toUpperCase()
-                )}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex justify-between items-baseline mb-1">
-                  <h3 className="font-medium text-white truncate">
-                    {contact.displayName}
-                  </h3>
-                  <span className="text-[10px] text-gray-500 uppercase tracking-tighter">Contact</span>
-                </div>
-                <p className="text-sm text-gray-400 truncate leading-tight">
-                  {contact.phoneNumber}
-                </p>
-              </div>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setContactToDelete(contact);
-                }}
-                className="p-2 text-gray-600 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-all opacity-0 group-hover:opacity-100"
-                title="Delete contact"
-              >
-                <Trash2 size={18} />
-              </button>
-            </motion.button>
-          ))}
-        </>
-      )}
-
       {/* Delete Contact Confirmation Modal */}
       <AnimatePresence>
         {contactToDelete && (

@@ -1,89 +1,687 @@
 <!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Welcome to Firebase Hosting</title>
+<html lang="en">
 
-    <!-- update the version number as needed -->
-    <script defer src="/__/firebase/12.13.0/firebase-app-compat.js"></script>
-    <!-- include only the Firebase features as you need -->
-    <script defer src="/__/firebase/12.13.0/firebase-auth-compat.js"></script>
-    <script defer src="/__/firebase/12.13.0/firebase-database-compat.js"></script>
-    <script defer src="/__/firebase/12.13.0/firebase-firestore-compat.js"></script>
-    <script defer src="/__/firebase/12.13.0/firebase-functions-compat.js"></script>
-    <script defer src="/__/firebase/12.13.0/firebase-messaging-compat.js"></script>
-    <script defer src="/__/firebase/12.13.0/firebase-storage-compat.js"></script>
-    <script defer src="/__/firebase/12.13.0/firebase-analytics-compat.js"></script>
-    <script defer src="/__/firebase/12.13.0/firebase-remote-config-compat.js"></script>
-    <script defer src="/__/firebase/12.13.0/firebase-performance-compat.js"></script>
-    <!-- 
-      initialize the SDK after all desired features are loaded, set useEmulator to false
-      to avoid connecting the SDK to running emulators.
-    -->
-    <script defer src="/__/firebase/init.js?useEmulator=true"></script>
-
-    <style media="screen">
-      body { background: #ECEFF1; color: rgba(0,0,0,0.87); font-family: Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 0; }
-      #message { background: white; max-width: 360px; margin: 100px auto 16px; padding: 32px 24px; border-radius: 3px; }
-      #message h2 { color: #ffa100; font-weight: bold; font-size: 16px; margin: 0 0 8px; }
-      #message h1 { font-size: 22px; font-weight: 300; color: rgba(0,0,0,0.6); margin: 0 0 16px;}
-      #message p { line-height: 140%; margin: 16px 0 24px; font-size: 14px; }
-      #message a { display: block; text-align: center; background: #039be5; text-transform: uppercase; text-decoration: none; color: white; padding: 16px; border-radius: 4px; }
-      #message, #message a { box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24); }
-      #load { color: rgba(0,0,0,0.4); text-align: center; font-size: 13px; }
-      @media (max-width: 600px) {
-        body, #message { margin-top: 0; background: white; box-shadow: none; }
-        body { border-top: 16px solid #ffa100; }
-      }
-    </style>
-  </head>
-  <body>
-    <div id="message">
-      <h2>Welcome</h2>
-      <h1>Firebase Hosting Setup Complete</h1>
-      <p>You're seeing this because you've successfully setup Firebase Hosting. Now it's time to go build something extraordinary!</p>
-      <a target="_blank" href="https://firebase.google.com/docs/hosting/">Open Hosting Documentation</a>
-    </div>
-    <p id="load">Firebase SDK Loading&hellip;</p>
-
-    <script>
-      document.addEventListener('DOMContentLoaded', function() {
-        const loadEl = document.querySelector('#load');
-        // // 🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥
-        // // The Firebase SDK is initialized and available here!
-        //
-        // firebase.auth().onAuthStateChanged(user => { });
-        // firebase.database().ref('/path/to/ref').on('value', snapshot => { });
-        // firebase.firestore().doc('/foo/bar').get().then(() => { });
-        // firebase.functions().httpsCallable('yourFunction')().then(() => { });
-        // firebase.messaging().requestPermission().then(() => { });
-        // firebase.storage().ref('/path/to/ref').getDownloadURL().then(() => { });
-        // firebase.analytics(); // call to activate
-        // firebase.analytics().logEvent('tutorial_completed');
-        // firebase.performance(); // call to activate
-        //
-        // // 🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥
-
-        try {
-          let app = firebase.app();
-          let features = [
-            'auth', 
-            'database', 
-            'firestore',
-            'functions',
-            'messaging', 
-            'storage', 
-            'analytics', 
-            'remoteConfig',
-            'performance',
-          ].filter(feature => typeof app[feature] === 'function');
-          loadEl.textContent = `Firebase SDK loaded with ${features.join(', ')}`;
-        } catch (e) {
-          console.error(e);
-          loadEl.textContent = 'Error loading the Firebase SDK, check the console.';
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dcalls — Voice, Video & Messaging Reimagined</title>
+    <link rel="icon" href="dcalls.ico" type="image/x-icon">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap"
+        rel="stylesheet">
+    <script src="/dcalls-config.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://unpkg.com/aos@2.3.1/dist/aos.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/particles.js/2.0.0/particles.min.js"></script>
+    <style>
+        :root {
+            --bg-deep: #06061a;
+            --bg-card: rgba(15, 15, 45, 0.6);
+            --border-glow: rgba(124, 58, 237, 0.3);
+            --purple: #7c3aed;
+            --purple-light: #a855f7;
+            --blue-glow: #3b82f6;
+            --cyan: #06b6d4;
+            --text-primary: #e2e8f0;
+            --text-secondary: #94a3b8;
         }
-      });
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--bg-deep);
+            color: var(--text-primary);
+            overflow-x: hidden;
+            line-height: 1.6;
+        }
+
+        #particles-js {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        .content-wrapper {
+            position: relative;
+            z-index: 1;
+        }
+
+        /* Glassmorphism */
+        .glass {
+            background: rgba(15, 15, 45, 0.5);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(124, 58, 237, 0.2);
+            border-radius: 16px;
+        }
+
+        .glass-nav {
+            background: rgba(10, 10, 35, 0.75);
+            backdrop-filter: blur(25px);
+            -webkit-backdrop-filter: blur(25px);
+            border-bottom: 1px solid rgba(124, 58, 237, 0.25);
+        }
+
+        .glass-card {
+            background: rgba(20, 20, 55, 0.45);
+            backdrop-filter: blur(18px);
+            -webkit-backdrop-filter: blur(18px);
+            border: 1px solid rgba(124, 58, 237, 0.2);
+            border-radius: 20px;
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .glass-card:hover {
+            border-color: rgba(124, 58, 237, 0.5);
+            box-shadow: 0 8px 40px rgba(124, 58, 237, 0.2), 0 0 80px rgba(59, 130, 246, 0.08);
+            transform: translateY(-4px);
+        }
+
+        /* Glow effects */
+        .glow-text {
+            background: linear-gradient(135deg, #a855f7, #7c3aed, #3b82f6, #06b6d4);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .glow-border {
+            position: relative;
+        }
+
+        .glow-border::after {
+            content: '';
+            position: absolute;
+            inset: -1px;
+            border-radius: inherit;
+            background: linear-gradient(135deg, #7c3aed, #3b82f6, #06b6d4, #7c3aed);
+            z-index: -1;
+            opacity: 0.5;
+            filter: blur(8px);
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #7c3aed, #3b82f6);
+            color: white;
+            padding: 14px 32px;
+            border-radius: 50px;
+            font-weight: 600;
+            font-size: 1rem;
+            border: none;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn-primary:hover {
+            box-shadow: 0 8px 30px rgba(124, 58, 237, 0.5);
+            transform: translateY(-2px);
+        }
+
+        .btn-primary::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+            transition: left 0.5s;
+        }
+
+        .btn-primary:hover::before {
+            left: 100%;
+        }
+
+        .btn-outline {
+            background: transparent;
+            color: white;
+            padding: 14px 32px;
+            border-radius: 50px;
+            font-weight: 600;
+            font-size: 1rem;
+            border: 2px solid rgba(124, 58, 237, 0.5);
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .btn-outline:hover {
+            border-color: #7c3aed;
+            box-shadow: 0 8px 30px rgba(124, 58, 237, 0.3);
+            background: rgba(124, 58, 237, 0.1);
+        }
+
+        /* Orb animation */
+        .orb {
+            width: 300px;
+            height: 300px;
+            border-radius: 50%;
+            background: radial-gradient(circle at 40% 40%, rgba(124, 58, 237, 0.6), rgba(59, 130, 246, 0.3), transparent 70%);
+            animation: float 6s ease-in-out infinite, pulse-glow 3s ease-in-out infinite;
+            filter: blur(30px);
+            position: absolute;
+        }
+
+        .orb-2 {
+            width: 200px;
+            height: 200px;
+            background: radial-gradient(circle at 50% 50%, rgba(6, 182, 212, 0.5), rgba(124, 58, 237, 0.2), transparent 70%);
+            animation: float 8s ease-in-out infinite reverse, pulse-glow 4s ease-in-out infinite 1s;
+            filter: blur(25px);
+        }
+
+        @keyframes float {
+
+            0%,
+            100% {
+                transform: translateY(0) scale(1);
+            }
+
+            33% {
+                transform: translateY(-30px) scale(1.05);
+            }
+
+            66% {
+                transform: translateY(20px) scale(0.95);
+            }
+        }
+
+        @keyframes pulse-glow {
+
+            0%,
+            100% {
+                opacity: 0.7;
+            }
+
+            50% {
+                opacity: 1;
+            }
+        }
+
+        /* Feature icon */
+        .feature-icon {
+            width: 60px;
+            height: 60px;
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+            background: linear-gradient(135deg, rgba(124, 58, 237, 0.2), rgba(59, 130, 246, 0.2));
+            border: 1px solid rgba(124, 58, 237, 0.3);
+        }
+
+        /* Step number */
+        .step-number {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #7c3aed, #3b82f6);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 1.3rem;
+            flex-shrink: 0;
+        }
+
+        /* Testimonial */
+        .testimonial-avatar {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #7c3aed, #3b82f6);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 1.2rem;
+            flex-shrink: 0;
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #06061a;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: linear-gradient(180deg, #7c3aed, #3b82f6);
+            border-radius: 4px;
+        }
+
+        /* Nav link */
+        .nav-link {
+            color: #94a3b8;
+            transition: color 0.3s;
+            position: relative;
+            text-decoration: none;
+        }
+
+        .nav-link:hover,
+        .nav-link.active {
+            color: #e2e8f0;
+        }
+
+        .nav-link::after {
+            content: '';
+            position: absolute;
+            bottom: -4px;
+            left: 0;
+            width: 0;
+            height: 2px;
+            background: linear-gradient(90deg, #7c3aed, #3b82f6);
+            transition: width 0.3s;
+        }
+
+        .nav-link:hover::after,
+        .nav-link.active::after {
+            width: 100%;
+        }
+
+        /* Mobile menu */
+        .mobile-menu {
+            display: none;
+        }
+
+        .mobile-menu.open {
+            display: flex;
+        }
+
+        @media (max-width: 768px) {
+            .orb {
+                width: 180px;
+                height: 180px;
+            }
+
+            .orb-2 {
+                width: 120px;
+                height: 120px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div id="particles-js"></div>
+
+    <div class="content-wrapper">
+        <!-- Navigation -->
+        <nav class="glass-nav fixed top-0 left-0 right-0 z-50 px-6 py-4">
+            <div class="max-w-7xl mx-auto flex items-center justify-between">
+                <a href="/welcome.html" class="flex items-center gap-3 text-xl font-bold">
+                    <img src="logo.png" alt="Dcalls" width="36" height="36" />
+                    <span class="glow-text">Dcalls</span>
+                </a>
+                <div class="hidden md:flex items-center gap-8">
+                    <a href="/welcome.html" class="nav-link active text-sm font-medium">Home</a>
+                    <a href="/damai.html" class="nav-link text-sm font-medium">Damai AI</a>
+                    <a href="/teams.html" class="nav-link text-sm font-medium">Teams</a>
+                    <a href="/help.html" class="nav-link text-sm font-medium">Help Center</a>
+                </div>
+                <div class="hidden md:block">
+                    <button id="navGetStartedBtn" class="btn-primary text-sm">Get Started Free</button>
+                </div>
+                <button id="mobileMenuBtn" class="md:hidden text-white text-2xl">☰</button>
+            </div>
+            <!-- Mobile Menu -->
+            <div id="mobileMenu"
+                class="mobile-menu fixed top-[72px] left-0 right-0 glass-nav flex-col items-center gap-6 py-8">
+                <a href="/welcome.html" class="nav-link active text-sm font-medium">Home</a>
+                <a href="/damai.html" class="nav-link text-sm font-medium">Damai AI</a>
+                <a href="/teams.html" class="nav-link text-sm font-medium">Teams</a>
+                <a href="/help.html" class="nav-link text-sm font-medium">Help Center</a>
+                <button id="mobileGetStartedBtn" class="btn-primary text-sm">Get Started Free</button>
+            </div>
+        </nav>
+
+        <!-- Hero Section -->
+        <section class="relative min-h-screen flex items-center justify-center px-6 pt-20 overflow-hidden">
+            <div class="orb absolute top-20 left-10 md:left-20" style="width:250px;height:250px;"></div>
+            <div class="orb-2 absolute bottom-20 right-10 md:right-32"></div>
+            <div class="max-w-4xl mx-auto text-center relative z-10" data-aos="fade-up" data-aos-duration="1000">
+                <div class="inline-flex items-center gap-2 glass px-4 py-2 rounded-full text-sm text-purple-300 mb-8">
+                    <span class="w-2 h-2 rounded-full bg-green-400 animate-pulse"></span>
+                    Now with Damai AI Assistant
+                </div>
+                <h1 class="text-5xl md:text-7xl font-extrabold leading-tight mb-6">
+                    Connect Beyond<br>
+                    <span class="glow-text">Boundaries</span>
+                </h1>
+                <p class="text-lg md:text-xl text-slate-400 max-w-2xl mx-auto mb-10">
+                    Crystal-clear voice calls, stunning video, and instant messaging — all powered by Damai, your
+                    intelligent AI companion that speaks your language.
+                </p>
+                <div class="flex flex-col sm:flex-row gap-4 justify-center">
+                    <button id="heroGetStartedBtn" class="btn-primary text-base">🚀 Start Calling Free</button>
+                    <button class="btn-outline text-base">▶️ Watch Demo</button>
+                </div>
+                <div class="mt-12 flex items-center justify-center gap-8 text-slate-500 text-sm">
+                    <span>🔒 End-to-end encrypted</span>
+                    <span>⚡ Ultra-low latency</span>
+                    <span>🌍 190+ countries</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Features Section -->
+        <section class="py-24 px-6 relative" id="features">
+            <div class="max-w-7xl mx-auto">
+                <div class="text-center mb-16" data-aos="fade-up">
+                    <h2 class="text-3xl md:text-5xl font-bold mb-4">Everything You Need to <span
+                            class="glow-text">Communicate</span></h2>
+                    <p class="text-slate-400 text-lg max-w-2xl mx-auto">Dcalls brings together the best of voice, video,
+                        and messaging in one seamless platform.</p>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+                    <!-- Feature 1: Voice -->
+                    <div class="glass-card p-8 text-center" data-aos="fade-up" data-aos-delay="100">
+                        <div class="feature-icon mx-auto mb-6">
+                            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#a855f7"
+                                stroke-width="2" stroke-linecap="round">
+                                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                                <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                                <line x1="12" y1="19" x2="12" y2="23" />
+                            </svg>
+                        </div>
+                        <h3 class="text-xl font-semibold mb-3">HD Voice Calls</h3>
+                        <p class="text-slate-400 text-sm">Crystal-clear audio with noise cancellation. Hear every
+                            whisper, every laugh — like they're in the room.</p>
+                    </div>
+                    <!-- Feature 2: Video -->
+                    <div class="glass-card p-8 text-center" data-aos="fade-up" data-aos-delay="200">
+                        <div class="feature-icon mx-auto mb-6">
+                            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#3b82f6"
+                                stroke-width="2" stroke-linecap="round">
+                                <polygon points="23 7 16 12 23 17 23 7" />
+                                <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+                            </svg>
+                        </div>
+                        <h3 class="text-xl font-semibold mb-3">4K Video Calls</h3>
+                        <p class="text-slate-400 text-sm">Stunning video quality with adaptive streaming. Group calls
+                            with up to 100 participants seamlessly.</p>
+                    </div>
+                    <!-- Feature 3: Messaging -->
+                    <div class="glass-card p-8 text-center" data-aos="fade-up" data-aos-delay="300">
+                        <div class="feature-icon mx-auto mb-6">
+                            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#06b6d4"
+                                stroke-width="2" stroke-linecap="round">
+                                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                            </svg>
+                        </div>
+                        <h3 class="text-xl font-semibold mb-3">Instant Messaging</h3>
+                        <p class="text-slate-400 text-sm">Rich text, emojis, file sharing, and reactions. Your
+                            conversations, perfectly organized.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- How It Works -->
+        <section class="py-24 px-6 relative" id="how-it-works">
+            <div class="max-w-4xl mx-auto">
+                <div class="text-center mb-16" data-aos="fade-up">
+                    <h2 class="text-3xl md:text-5xl font-bold mb-4">How <span class="glow-text">Dcalls</span> Works</h2>
+                    <p class="text-slate-400 text-lg">Three simple steps to transform how you communicate.</p>
+                </div>
+                <div class="space-y-12">
+                    <div class="flex items-start gap-6" data-aos="fade-right" data-aos-delay="100">
+                        <div class="step-number">1</div>
+                        <div class="glass-card p-6 flex-1">
+                            <h3 class="text-xl font-semibold mb-2">Create Your Account</h3>
+                            <p class="text-slate-400">Sign up in seconds with your email or phone. Your digital
+                                communication hub is ready instantly.</p>
+                        </div>
+                    </div>
+                    <div class="flex items-start gap-6" data-aos="fade-left" data-aos-delay="200">
+                        <div class="step-number">2</div>
+                        <div class="glass-card p-6 flex-1">
+                            <h3 class="text-xl font-semibold mb-2">Invite & Connect</h3>
+                            <p class="text-slate-400">Add contacts, create groups, and start conversations. Dcalls works
+                                across all devices seamlessly.</p>
+                        </div>
+                    </div>
+                    <div class="flex items-start gap-6" data-aos="fade-right" data-aos-delay="300">
+                        <div class="step-number">3</div>
+                        <div class="glass-card p-6 flex-1">
+                            <h3 class="text-xl font-semibold mb-2">Let Damai Assist You</h3>
+                            <p class="text-slate-400">Your AI companion handles translations, scheduling, summaries, and
+                                more — so you focus on what matters.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Testimonials -->
+        <section class="py-24 px-6 relative" id="testimonials">
+            <div class="max-w-7xl mx-auto">
+                <div class="text-center mb-16" data-aos="fade-up">
+                    <h2 class="text-3xl md:text-5xl font-bold mb-4">Loved by <span class="glow-text">Millions</span>
+                    </h2>
+                    <p class="text-slate-400 text-lg">See what our users say about Dcalls.</p>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+                    <div class="glass-card p-8" data-aos="fade-up" data-aos-delay="100">
+                        <div class="flex items-center gap-3 mb-4">
+                            <div class="testimonial-avatar">SK</div>
+                            <div>
+                                <h4 class="font-semibold">Sarah Kim</h4>
+                                <p class="text-slate-500 text-sm">Remote Team Lead</p>
+                            </div>
+                        </div>
+                        <p class="text-slate-300">"Dcalls transformed our remote team communication. The video quality
+                            is unmatched, and Damai's real-time translation is a game-changer for our global team."</p>
+                        <div class="mt-4 text-yellow-400">★★★★★</div>
+                    </div>
+                    <div class="glass-card p-8" data-aos="fade-up" data-aos-delay="200">
+                        <div class="flex items-center gap-3 mb-4">
+                            <div class="testimonial-avatar">MR</div>
+                            <div>
+                                <h4 class="font-semibold">Marcus Rivera</h4>
+                                <p class="text-slate-500 text-sm">Freelance Designer</p>
+                            </div>
+                        </div>
+                        <p class="text-slate-300">"I've tried every calling app out there. Dcalls is the only one that
+                            feels truly next-gen. The AI scheduling alone saves me hours every week."</p>
+                        <div class="mt-4 text-yellow-400">★★★★★</div>
+                    </div>
+                    <div class="glass-card p-8" data-aos="fade-up" data-aos-delay="300">
+                        <div class="flex items-center gap-3 mb-4">
+                            <div class="testimonial-avatar">LC</div>
+                            <div>
+                                <h4 class="font-semibold">Lena Chen</h4>
+                                <p class="text-slate-500 text-sm">International Student</p>
+                            </div>
+                        </div>
+                        <p class="text-slate-300">"Calling my family overseas used to be expensive and laggy. Dcalls is
+                            crystal clear and Damai translates in real-time. Absolutely incredible."</p>
+                        <div class="mt-4 text-yellow-400">★★★★★</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- CTA Section -->
+        <section class="py-24 px-6 relative">
+            <div class="max-w-3xl mx-auto text-center glass-card p-12" data-aos="zoom-in">
+                <h2 class="text-3xl md:text-4xl font-bold mb-4">Ready to Experience <span
+                        class="glow-text">Dcalls</span>?</h2>
+                <p class="text-slate-400 text-lg mb-8">Join millions who trust Dcalls for their most important
+                    conversations. Free forever plan available.</p>
+                <div class="flex flex-col sm:flex-row gap-4 justify-center">
+                    <button id="downloadBtn" class="btn-primary text-base">Download for Free</button>
+                    <button class="btn-outline text-base">Talk to Sales</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Footer -->
+        <footer class="py-16 px-6 border-t border-purple-900/30 relative">
+            <div class="max-w-7xl mx-auto">
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-10">
+                    <div>
+                        <a href="index.html" class="flex items-center gap-3 text-xl font-bold mb-4">
+                            <span class="glow-text">Dcalls</span>
+                        </a>
+                        <p class="text-slate-500 text-sm">Voice, video, and messaging reimagined with AI.</p>
+                    </div>
+                    <div>
+                        <h4 class="font-semibold mb-4 text-sm uppercase tracking-wider text-slate-400">Product</h4>
+                        <ul class="space-y-2 text-sm text-slate-500">
+                            <li><a href="index.html#features"
+                                    class="hover:text-purple-400 transition-colors">Features</a></li>
+                            <li><a href="index.html#how-it-works" class="hover:text-purple-400 transition-colors">How It
+                                    Works</a></li>
+                            <li><a href="damai.html" class="hover:text-purple-400 transition-colors">Damai AI</a></li>
+                            <li><a href="teams.html" class="hover:text-purple-400 transition-colors">Teams</a></li>
+                            <li><a href="#" class="hover:text-purple-400 transition-colors">Pricing</a></li>
+                        </ul>
+                    </div>
+                    <div>
+                        <h4 class="font-semibold mb-4 text-sm uppercase tracking-wider text-slate-400">Support</h4>
+                        <ul class="space-y-2 text-sm text-slate-500">
+                            <li><a href="help.HTML" class="hover:text-purple-400 transition-colors">Help Center</a></li>
+                            <li><a href="help.HTML#contact" class="hover:text-purple-400 transition-colors">Contact
+                                    Us</a></li>
+                            <li><a href="#" class="hover:text-purple-400 transition-colors">Privacy Policy</a></li>
+                            <li><a href="#" class="hover:text-purple-400 transition-colors">Terms of Service</a></li>
+                        </ul>
+                    </div>
+                    <div>
+                        <h4 class="font-semibold mb-4 text-sm uppercase tracking-wider text-slate-400">Connect</h4>
+                        <div class="flex gap-4">
+                            <a href="#"
+                                class="w-10 h-10 rounded-full glass flex items-center justify-center hover:border-purple-500 transition-all">🐦</a>
+                            <a href="#"
+                                class="w-10 h-10 rounded-full glass flex items-center justify-center hover:border-purple-500 transition-all">📘</a>
+                            <a href="#"
+                                class="w-10 h-10 rounded-full glass flex items-center justify-center hover:border-purple-500 transition-all">📷</a>
+                            <a href="#"
+                                class="w-10 h-10 rounded-full glass flex items-center justify-center hover:border-purple-500 transition-all">💼</a>
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-12 pt-8 border-t border-purple-900/20 text-center text-slate-600 text-sm">
+                    © 2026 Dcalls. All rights reserved. Built with ❤️ for seamless communication.
+                </div>
+            </div>
+        </footer>
+    </div>
+
+    <script src="https://unpkg.com/aos@2.3.1/dist/aos.js"></script>
+    <script>
+        // Initialize AOS
+        AOS.init({ duration: 800, once: true, offset: 100 });
+
+        // Initialize Particles.js
+        particlesJS('particles-js', {
+            particles: {
+                number: { value: 60, density: { enable: true, value_area: 800 } },
+                color: { value: '#7c3aed' },
+                shape: { type: 'circle' },
+                opacity: { value: 0.3, random: true },
+                size: { value: 2, random: true },
+                line_linked: { enable: true, distance: 150, color: '#3b82f6', opacity: 0.15, width: 1 },
+                move: { enable: true, speed: 1.5, direction: 'none', random: true, out_mode: 'out' }
+            },
+            interactivity: {
+                detect_on: 'canvas',
+                events: { onhover: { enable: true, mode: 'grab' }, onclick: { enable: true, mode: 'push' } },
+                modes: { grab: { distance: 140, line_linked: { opacity: 0.4 } }, push: { particles_nb: 4 } }
+            },
+            retina_detect: true
+        });
+
+        // Mobile menu toggle
+        const mobileMenuBtn = document.getElementById('mobileMenuBtn');
+        const mobileMenu = document.getElementById('mobileMenu');
+        mobileMenuBtn.addEventListener('click', () => {
+            mobileMenu.classList.toggle('open');
+        });
+
+        // Navbar scroll effect
+        window.addEventListener('scroll', () => {
+            const nav = document.querySelector('nav');
+            if (window.scrollY > 50) {
+                nav.style.boxShadow = '0 4px 30px rgba(0,0,0,0.5)';
+            } else {
+                nav.style.boxShadow = 'none';
+            }
+        });
+
+        // Get Started buttons — open the Dcalls web app (React SPA)
+        function openWebApp() {
+            if (window.DcallsUrls) {
+                window.DcallsUrls.openWebApp(true);
+                return;
+            }
+            const host = location.hostname;
+            const url = (host === 'localhost' || host === '127.0.0.1')
+                ? 'http://localhost:3000'
+                : (host.endsWith('.web.app') || host.endsWith('.firebaseapp.com'))
+                    ? `${location.protocol}//${host}`
+                    : 'https://app.dcalls.com';
+            location.href = url;
+        }
+
+        document.getElementById('navGetStartedBtn')?.addEventListener('click', openWebApp);
+        document.getElementById('mobileGetStartedBtn')?.addEventListener('click', openWebApp);
+        document.getElementById('heroGetStartedBtn')?.addEventListener('click', openWebApp);
+
+        // Download modal functionality
+        const downloadBtn = document.getElementById('downloadBtn');
+
+        if (downloadBtn) {
+            downloadBtn.addEventListener('click', () => {
+                showDownloadModal();
+            });
+        }
+
+        function showDownloadModal() {
+            const modalHTML = `
+                <div id="downloadModal" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 9999;">
+                    <div style="background: linear-gradient(135deg, rgba(15,15,45,0.9), rgba(20,20,55,0.9)); border: 1px solid rgba(124,58,237,0.3); border-radius: 24px; padding: 40px; max-width: 500px; width: 90%; box-shadow: 0 20px 60px rgba(0,0,0,0.5);">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+                            <h2 style="color: #e2e8f0; font-size: 24px; font-weight: 700; margin: 0;">Download Dcalls</h2>
+                            <button id="closeModal" style="background: none; border: none; color: #94a3b8; font-size: 24px; cursor: pointer; padding: 0;">&times;</button>
+                        </div>
+                        <p style="color: #94a3b8; margin: 0 0 24px 0; font-size: 14px;">Choose your platform to download Dcalls</p>
+                        <div style="display: flex; flex-direction: column; gap: 12px;">
+                            <a href="https://apps.microsoft.com/store/detail/dcalls/" target="_blank" style="display: flex; align-items: center; gap: 12px; padding: 16px; background: rgba(124,58,237,0.1); border: 1px solid rgba(124,58,237,0.3); border-radius: 12px; color: #e2e8f0; text-decoration: none; cursor: pointer; transition: all 0.3s;" onmouseover="this.style.background='rgba(124,58,237,0.2)'; this.style.borderColor='rgba(124,58,237,0.6)';" onmouseout="this.style.background='rgba(124,58,237,0.1)'; this.style.borderColor='rgba(124,58,237,0.3)';"><span style="font-size: 24px;">🪟</span><div><div style="font-weight: 600; font-size: 14px;">Windows</div><div style="color: #94a3b8; font-size: 12px;">Get it from Microsoft Store</div></div></a>
+                            <a href="https://apps.apple.com/app/dcalls/" target="_blank" style="display: flex; align-items: center; gap: 12px; padding: 16px; background: rgba(124,58,237,0.1); border: 1px solid rgba(124,58,237,0.3); border-radius: 12px; color: #e2e8f0; text-decoration: none; cursor: pointer; transition: all 0.3s;" onmouseover="this.style.background='rgba(124,58,237,0.2)'; this.style.borderColor='rgba(124,58,237,0.6)';" onmouseout="this.style.background='rgba(124,58,237,0.1)'; this.style.borderColor='rgba(124,58,237,0.3)';"><span style="font-size: 24px;">🍎</span><div><div style="font-weight: 600; font-size: 14px;">iOS</div><div style="color: #94a3b8; font-size: 12px;">Get it from App Store</div></div></a>
+                            <a href="https://play.google.com/store/apps/details?id=com.dcalls" target="_blank" style="display: flex; align-items: center; gap: 12px; padding: 16px; background: rgba(124,58,237,0.1); border: 1px solid rgba(124,58,237,0.3); border-radius: 12px; color: #e2e8f0; text-decoration: none; cursor: pointer; transition: all 0.3s;" onmouseover="this.style.background='rgba(124,58,237,0.2)'; this.style.borderColor='rgba(124,58,237,0.6)';" onmouseout="this.style.background='rgba(124,58,237,0.1)'; this.style.borderColor='rgba(124,58,237,0.3)';"><span style="font-size: 24px;">🤖</span><div><div style="font-weight: 600; font-size: 14px;">Android</div><div style="color: #94a3b8; font-size: 12px;">Get it from Play Store</div></div></a>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            const existingModal = document.getElementById('downloadModal');
+            if (existingModal) existingModal.remove();
+
+            document.body.insertAdjacentHTML('beforeend', modalHTML);
+
+            const modal = document.getElementById('downloadModal');
+            const closeBtn = document.getElementById('closeModal');
+
+            closeBtn.addEventListener('click', () => modal.remove());
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) modal.remove();
+            });
+        }
     </script>
-  </body>
+</body>
+
 </html>
