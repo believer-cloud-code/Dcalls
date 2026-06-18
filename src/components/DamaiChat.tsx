@@ -55,6 +55,14 @@ export const DamaiChat: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const recognitionRef = useRef<any>(null);
   const lastSuggestionMessageRef = useRef<string | null>(null);
 
+  const normalizeTimestamp = (ts: any) => {
+    if (!ts) return new Date();
+    if (typeof ts.toDate === 'function') return ts.toDate();
+    if (typeof ts === 'number') return new Date(ts);
+    if (ts instanceof Date) return ts;
+    try { return new Date(ts); } catch { return new Date(); }
+  };
+
   const LANGUAGES = [
     'English', 'Spanish', 'French', 'German', 'Chinese', 'Japanese', 'Korean', 'Portuguese', 'Russian', 'Italian'
   ];
@@ -137,7 +145,7 @@ export const DamaiChat: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const threads = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ChatThread));
+      const threads = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as ChatThread));
       setChatThreads(threads);
 
       // If no active chat, select the most recent one
@@ -160,25 +168,30 @@ export const DamaiChat: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     const q = query(messagesRef, orderBy('timestamp', 'asc'));
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const newMsgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Message[];
+      const serverMsgs = snapshot.docs.map(d => {
+        const data = d.data();
+        return ({ id: d.id, ...data, timestamp: normalizeTimestamp(data.timestamp) }) as Message;
+      });
 
-      // Avoid unnecessary state updates: compare last id and length
+      // Avoid unnecessary state updates: merge with local optimistic placeholders
       setMessages(prev => {
+        const prevTemps = (prev || []).filter(m => typeof m.id === 'string' && (m.id as string).startsWith('local-ai-') && m.isThinking);
+        const pending = prevTemps.filter(temp => !serverMsgs.some(s => s.text === temp.text && s.sender === temp.sender));
+
         const prevLastId = prev && prev.length > 0 ? prev[prev.length - 1].id : null;
-        const newLastId = newMsgs.length > 0 ? newMsgs[newMsgs.length - 1].id : null;
-        if (prev && prev.length === newMsgs.length && prevLastId === newLastId) {
-          return prev; // no change
-        }
-        return newMsgs;
+        const newLastId = serverMsgs.length > 0 ? serverMsgs[serverMsgs.length - 1].id : null;
+        if (prev && prev.length === serverMsgs.length + pending.length && prevLastId === newLastId) return prev;
+        return [...serverMsgs, ...pending];
       });
 
       // If a new user message arrived, trigger suggestions once
-      const lastMsg = newMsgs.length > 0 ? newMsgs[newMsgs.length - 1] : null;
+      const lastMsg = serverMsgs.length > 0 ? serverMsgs[serverMsgs.length - 1] : null;
       if (lastMsg && lastMsg.sender === 'user' && lastMsg.id !== lastSuggestionMessageRef.current) {
         lastSuggestionMessageRef.current = lastMsg.id;
         void (async () => {
           try {
-            await generateSuggestions(newMsgs.slice(-6));
+            // pass the last server messages for context
+            await generateSuggestions(serverMsgs.slice(-6));
           } catch (e) {
             console.error('Suggestion generation failed:', e);
           }

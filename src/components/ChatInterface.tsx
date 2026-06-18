@@ -65,6 +65,14 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const prevMessagesRef = useRef<Message[] | null>(null);
   const readMarkedRef = useRef<Set<string>>(new Set());
 
+  const normalizeTimestamp = (ts: any) => {
+    if (!ts) return new Date();
+    if (typeof ts.toDate === 'function') return ts.toDate();
+    if (typeof ts === 'number') return new Date(ts);
+    if (ts instanceof Date) return ts;
+    try { return new Date(ts); } catch { return new Date(); }
+  };
+
   const handleFeedback = async (messageId: string, isPositive: boolean) => {
     if (!chatId || !auth.currentUser) return;
     try {
@@ -186,18 +194,26 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     const q = query(messagesRef, orderBy('timestamp', 'asc'));
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const newMsgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Message[];
+      const serverMsgs = snapshot.docs.map(d => {
+        const data = d.data();
+        return ({ id: d.id, ...data, timestamp: normalizeTimestamp(data.timestamp) }) as Message;
+      });
 
-      // Quick stability checks: if last id unchanged and length unchanged, skip setState
-      const prev = prevMessagesRef.current;
-      const lastPrevId = prev && prev.length > 0 ? prev[prev.length - 1].id : null;
-      const lastNewId = newMsgs.length > 0 ? newMsgs[newMsgs.length - 1].id : null;
-      if (prev && prev.length === newMsgs.length && lastPrevId === lastNewId) {
-        return;
-      }
+      setMessages(prev => {
+        const prevTemps = (prev || []).filter(m => typeof m.id === 'string' && m.id.startsWith('temp-') && m.status !== 'sent');
+        const pending = prevTemps.filter(temp => !serverMsgs.some(s => s.text === temp.text && s.senderId === temp.senderId));
 
-      prevMessagesRef.current = newMsgs;
-      setMessages(newMsgs);
+        const prevLastId = prev && prev.length > 0 ? prev[prev.length - 1].id : null;
+        const newLastId = serverMsgs.length > 0 ? serverMsgs[serverMsgs.length - 1].id : null;
+
+        if (prev && prev.length === serverMsgs.length + pending.length && prevLastId === newLastId) {
+          return prev; // no change
+        }
+
+        const merged = [...serverMsgs, ...pending];
+        prevMessagesRef.current = merged;
+        return merged;
+      });
     }, (error) => {
       handleFirestoreError(error, OperationType.GET, messagesRef.path);
     });
@@ -736,7 +752,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
           )}
         </div>
         <span className="text-[9px] text-gray-500 mt-1 uppercase tracking-tighter flex items-center gap-1">
-          {msg.timestamp?.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          {normalizeTimestamp(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           {isEncrypted && decryptionStatus === 'success' && (
             <span className="w-1 h-1 rounded-full bg-emerald-500/50" />
           )}
