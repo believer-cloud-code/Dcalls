@@ -13,7 +13,7 @@ messaging.onBackgroundMessage((payload) => {
   const notificationTitle = payload.notification.title;
   const notificationOptions = {
     body: payload.notification.body,
-    icon: '/logo.png' // You should add a logo.png to your public folder
+    icon: '/logo.svg' // Prefer svg and fallback handled in app
   };
 
   self.registration.showNotification(notificationTitle, notificationOptions);

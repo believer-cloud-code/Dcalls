@@ -23,6 +23,8 @@ export interface Chat {
 
 export interface Message {
   id: string;
+  /** Client-generated ID written to Firestore for optimistic reconciliation */
+  clientId?: string;
   chatId: string;
   senderId: string;
   text: string;

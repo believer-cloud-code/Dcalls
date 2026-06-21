@@ -53,7 +53,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const [inputText, setInputText] = useState('');
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
-  const [isTranslating, setIsTranslating] = useState(false);
   const [chatPartner, setChatPartner] = useState<{ id: string, name: string, photo?: string, phone?: string, status?: string } | null>(null);
   const [partnerPresence, setPartnerPresence] = useState<{ isOnline: boolean, lastSeenText: string }>({ isOnline: false, lastSeenText: 'Offline' });
   const [isRefining, setIsRefining] = useState(false);
@@ -62,7 +61,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const [uploadingFile, setUploadingFile] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const prevMessagesRef = useRef<Message[] | null>(null);
   const readMarkedRef = useRef<Set<string>>(new Set());
 
   const normalizeTimestamp = (ts: any) => {
@@ -200,18 +198,32 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
       });
 
       setMessages(prev => {
-        const prevTemps = (prev || []).filter(m => typeof m.id === 'string' && m.id.startsWith('temp-') && m.status !== 'sent');
-        const pending = prevTemps.filter(temp => !serverMsgs.some(s => s.text === temp.text && s.senderId === temp.senderId));
-
-        const prevLastId = prev && prev.length > 0 ? prev[prev.length - 1].id : null;
-        const newLastId = serverMsgs.length > 0 ? serverMsgs[serverMsgs.length - 1].id : null;
-
-        if (prev && prev.length === serverMsgs.length + pending.length && prevLastId === newLastId) {
-          return prev; // no change
-        }
+        const prevTemps = (prev || []).filter(
+          m => typeof m.id === 'string' && m.id.startsWith('temp-') && m.status !== 'sent'
+        );
+        const pending = prevTemps.filter(
+          temp => !serverMsgs.some(
+            s => s.clientId === temp.id || (s.id === temp.id)
+          )
+        );
 
         const merged = [...serverMsgs, ...pending];
-        prevMessagesRef.current = merged;
+
+        if (prev && prev.length === merged.length) {
+          const unchanged = merged.every((m, i) => {
+            const p = prev[i];
+            if (!p || p.id !== m.id) return false;
+            return (
+              p.status === m.status &&
+              p.feedback === m.feedback &&
+              p.text === m.text &&
+              p.senderId === m.senderId &&
+              p.type === m.type
+            );
+          });
+          if (unchanged) return prev;
+        }
+
         return merged;
       });
     }, (error) => {
@@ -448,6 +460,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
       try {
         const messageRef = await addDoc(messagesRef, {
           chatId,
+          clientId: tempId,
           senderId: auth.currentUser.uid,
           text: encryptedText,
           isEncrypted,
@@ -480,8 +493,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
       const lowerText = text.toLowerCase();
 
       if (lowerText.includes('@damai') && ai) {
-        setIsTranslating(true); // Reusing translating state for AI loading
-
         try {
           let aiResponse = "";
           const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
@@ -564,8 +575,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
           });
         } catch (error) {
           console.error("Damai command failed", error);
-        } finally {
-          setIsTranslating(false);
         }
       }
     } catch (error) {

@@ -23,7 +23,8 @@ interface Message {
   timestamp: any;
   sources?: { title: string; uri: string }[];
   files?: { name: string; type: string; data?: string }[];
-  isThinking?: boolean;
+  isThinking?: boolean;   // local placeholder only (local-ai-*)
+  thinkingMode?: boolean; // persisted: reply was generated in thinking mode
 }
 
 interface ChatThread {
@@ -173,15 +174,27 @@ export const DamaiChat: React.FC<{ onClose: () => void }> = ({ onClose }) => {
         return ({ id: d.id, ...data, timestamp: normalizeTimestamp(data.timestamp) }) as Message;
       });
 
-      // Avoid unnecessary state updates: merge with local optimistic placeholders
       setMessages(prev => {
-        const prevTemps = (prev || []).filter(m => typeof m.id === 'string' && (m.id as string).startsWith('local-ai-') && m.isThinking);
-        const pending = prevTemps.filter(temp => !serverMsgs.some(s => s.text === temp.text && s.sender === temp.sender));
+        const placeholders = (prev || []).filter(
+          m => typeof m.id === 'string' && m.id.startsWith('local-ai-') && m.isThinking
+        );
+        const merged = [...serverMsgs, ...placeholders];
 
-        const prevLastId = prev && prev.length > 0 ? prev[prev.length - 1].id : null;
-        const newLastId = serverMsgs.length > 0 ? serverMsgs[serverMsgs.length - 1].id : null;
-        if (prev && prev.length === serverMsgs.length + pending.length && prevLastId === newLastId) return prev;
-        return [...serverMsgs, ...pending];
+        if (prev && prev.length === merged.length) {
+          const unchanged = merged.every((m, i) => {
+            const p = prev[i];
+            if (!p || p.id !== m.id) return false;
+            return (
+              p.text === m.text &&
+              p.sender === m.sender &&
+              p.isThinking === m.isThinking &&
+              JSON.stringify(p.sources ?? []) === JSON.stringify(m.sources ?? [])
+            );
+          });
+          if (unchanged) return prev;
+        }
+
+        return merged;
       });
 
       // If a new user message arrived, trigger suggestions once
@@ -427,7 +440,7 @@ export const DamaiChat: React.FC<{ onClose: () => void }> = ({ onClose }) => {
           sender: 'ai',
           timestamp: serverTimestamp(),
           sources,
-          isThinking: isThinkingMode
+          thinkingMode: isThinkingMode
         });
 
         // Speak AI response
@@ -538,6 +551,14 @@ export const DamaiChat: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     <div className="fixed inset-0 bg-[#0a0a0a] z-40 flex overflow-hidden">
       {/* Sidebar */}
       <AnimatePresence>
+        {/* Hover region to reveal sidebar on desktop */}
+        <div
+          className="hidden lg:block absolute left-0 top-0 h-full w-4 z-50"
+          onMouseEnter={() => setShowSidebar(true)}
+          onMouseLeave={() => setShowSidebar(false)}
+          aria-hidden
+        />
+
         {(showSidebar || window.innerWidth > 1024) && (
           <motion.aside
             initial={{ x: -300 }}
@@ -770,7 +791,7 @@ export const DamaiChat: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                   "p-4 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap overflow-visible word-break",
                   msg.sender === 'user' ? "bg-white/5 text-white ml-auto max-w-2xl" : "bg-transparent text-gray-200 max-w-2xl"
                 )}>
-                  {msg.isThinking && (
+                  {msg.thinkingMode && (
                     <div className="flex items-center gap-2 mb-2 text-[10px] font-bold text-purple-400 uppercase tracking-widest">
                       <Brain size={12} />
                       Deep Thinking Mode
@@ -837,18 +858,7 @@ export const DamaiChat: React.FC<{ onClose: () => void }> = ({ onClose }) => {
               </div>
             </motion.div>
           ))}
-          {isLoading && (
-            <div className="flex gap-4 max-w-3xl mx-auto w-full">
-              <div className="w-8 h-8 rounded-lg bg-purple-600 flex items-center justify-center animate-pulse">
-                <Bot size={16} className="text-white" />
-              </div>
-              <div className="flex gap-1 items-center h-8">
-                <div className="w-1 h-1 bg-purple-500 rounded-full animate-bounce" />
-                <div className="w-1 h-1 bg-purple-500 rounded-full animate-bounce [animation-delay:0.2s]" />
-                <div className="w-1 h-1 bg-purple-500 rounded-full animate-bounce [animation-delay:0.4s]" />
-              </div>
-            </div>
-          )}
+          {/* AI loading shown only via local-ai-* placeholder in messages list */}
         </div>
 
         {/* Input */}

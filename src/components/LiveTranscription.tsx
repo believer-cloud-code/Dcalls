@@ -22,6 +22,7 @@ export const LiveTranscription: React.FC = () => {
   const streamRef = useRef<MediaStream | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const sessionRef = useRef<any>(null);
+  const listeningRef = useRef<boolean>(false);
 
   const startListening = async () => {
     try {
@@ -85,7 +86,7 @@ export const LiveTranscription: React.FC = () => {
       processorRef.current = processor;
 
       processor.onaudioprocess = (e) => {
-        if (!isListening) return;
+        if (!listeningRef.current) return;
         
         const inputData = e.inputBuffer.getChannelData(0);
         // Convert Float32 to Int16 PCM
@@ -107,11 +108,13 @@ export const LiveTranscription: React.FC = () => {
       console.error("Failed to start listening:", err);
       setError(err.message || "Could not access microphone.");
       setIsListening(false);
+      listeningRef.current = false;
     }
   };
 
   const stopListening = () => {
     setIsListening(false);
+    listeningRef.current = false;
     
     if (processorRef.current) {
       processorRef.current.disconnect();
@@ -133,6 +136,10 @@ export const LiveTranscription: React.FC = () => {
       sessionRef.current = null;
     }
   };
+
+  useEffect(() => {
+    listeningRef.current = isListening;
+  }, [isListening]);
 
   const clearTranscription = () => {
     setTranscription([]);
