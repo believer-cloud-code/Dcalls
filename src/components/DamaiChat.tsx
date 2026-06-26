@@ -762,13 +762,7 @@ export const DamaiChat: React.FC<{ onClose: () => void }> = ({ onClose }) => {
           </AnimatePresence>
 
           {messages.length === 0 && (
-            <div className="h-full flex flex-col items-center justify-center text-center space-y-4 opacity-50">
-              <Bot size={48} className="text-purple-500" />
-              <div className="space-y-1">
-                <h3 className="text-xl font-bold text-white">How can I help you today?</h3>
-                <p className="text-sm text-gray-400 max-w-xs">I remember our past conversations to give you better, more personalized help.</p>
-              </div>
-            </div>
+            <div className="h-full" />
           )}
           {messages.map((msg) => (
             <motion.div
