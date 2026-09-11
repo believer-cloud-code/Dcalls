@@ -1,9 +1,13 @@
-import React, { useState, useEffect } from 'react';
-import { authService } from '../services/authService';
-import { RecaptchaVerifier, ConfirmationResult } from 'firebase/auth';
-import { auth } from '../firebase';
+import React, { useEffect, useState } from 'react';
+import { authService, PhoneOtpTransaction } from '../services/authService';
 import { motion, AnimatePresence } from 'motion/react';
-import { Phone, ArrowRight, ShieldCheck, RefreshCw, ChevronLeft } from 'lucide-react';
+import {
+  Phone,
+  ArrowRight,
+  ShieldCheck,
+  RefreshCw,
+  ChevronLeft,
+} from 'lucide-react';
 import PhoneInput from 'react-phone-input-2';
 import 'react-phone-input-2/lib/style.css';
 import { clsx, type ClassValue } from 'clsx';
@@ -19,108 +23,160 @@ interface PhoneAuthScreenProps {
   phoneNumber?: string;
 }
 
-export const PhoneAuthScreen: React.FC<PhoneAuthScreenProps> = ({ onSuccess, onBack, phoneNumber: initialPhoneNumber }) => {
-  const [phoneNumber, setPhoneNumber] = useState(initialPhoneNumber?.replace('+', '') || '');
+export const PhoneAuthScreen: React.FC<PhoneAuthScreenProps> = ({
+  onSuccess,
+  onBack,
+  phoneNumber: initialPhoneNumber,
+}) => {
+  const [phoneNumber, setPhoneNumber] = useState(
+    initialPhoneNumber?.replace('+', '') || ''
+  );
+
   const [verificationCode, setVerificationCode] = useState('');
-  const [confirmationData, setConfirmationData] = useState<ConfirmationResult | null>(null);
+
+  const [transactionData, setTransactionData] =
+    useState<PhoneOtpTransaction | null>(null);
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [timer, setTimer] = useState(0);
-  const recaptchaVerifierRef = React.useRef<RecaptchaVerifier | null>(null);
 
   useEffect(() => {
-    if (initialPhoneNumber && !confirmationData && !loading) {
-      handleSendCode();
-    }
-  }, [initialPhoneNumber]);
+    let interval: ReturnType<typeof setInterval> | undefined;
 
-  useEffect(() => {
-    let interval: any;
     if (timer > 0) {
-      interval = setInterval(() => setTimer(prev => prev - 1), 1000);
+      interval = setInterval(() => {
+        setTimer((previous) => Math.max(0, previous - 1));
+      }, 1000);
     }
-    return () => clearInterval(interval);
+
+    return () => {
+      if (interval) clearInterval(interval);
+    };
   }, [timer]);
 
-  useEffect(() => {
-    return () => {
-      if (recaptchaVerifierRef.current) {
-        recaptchaVerifierRef.current.clear();
-        recaptchaVerifierRef.current = null;
-      }
-    };
-  }, []);
-
-  const initRecaptcha = () => {
-    if (recaptchaVerifierRef.current) return recaptchaVerifierRef.current;
-
-    try {
-      const verifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
-        'size': 'invisible',
-        'callback': () => {
-          // reCAPTCHA solved
-        },
-        'expired-callback': () => {
-          setError("reCAPTCHA expired. Please try again.");
-          if (recaptchaVerifierRef.current) {
-            recaptchaVerifierRef.current.clear();
-            recaptchaVerifierRef.current = null;
-          }
-        }
-      });
-      recaptchaVerifierRef.current = verifier;
-      return verifier;
-    } catch (err: any) {
-      console.error("Recaptcha init error:", err);
-      return null;
-    }
-  };
-
   const handleSendCode = async () => {
-    if (!phoneNumber) return;
+    if (!phoneNumber || loading) return;
+
     setLoading(true);
     setError('');
-    try {
-      const verifier = initRecaptcha();
-      if (!verifier) throw new Error("Failed to initialize security check.");
 
-      const formattedPhone = '+' + phoneNumber;
-      const result = await authService.sendPhoneCode(formattedPhone, verifier);
-      setConfirmationData(result);
+    try {
+      const formattedPhone = phoneNumber.startsWith('+')
+        ? phoneNumber
+        : `+${phoneNumber}`;
+
+      const result = await authService.sendPhoneCode(
+        formattedPhone
+      );
+
+      setTransactionData(result);
+      setVerificationCode('');
       setTimer(60);
     } catch (err: any) {
-      console.error("Phone auth error:", err);
-      if (err.code === 'auth/network-request-failed') {
-        setError("Network error. Please check your connection and try again.");
-      } else if (err.message?.includes('rendered')) {
-        // If it still says already rendered, try clearing and re-init
-        if (recaptchaVerifierRef.current) {
-          recaptchaVerifierRef.current.clear();
-          recaptchaVerifierRef.current = null;
-        }
-        setError("Security check error. Please try clicking the button again.");
-      } else {
-        setError(err.message || "Failed to send code. Please try again.");
+      console.error('Phone OTP send error:', err);
+
+      const message = String(
+        err?.message || ''
+      ).toLowerCase();
+
+      if (err?.status === 409) {
+        setError(
+          'A verification code has already been sent. Please enter the code you received.'
+        );
+        return;
       }
 
-      // Reset recaptcha container if it fails
-      const container = document.getElementById('recaptcha-container');
-      if (container) container.innerHTML = '';
+      if (
+        message.includes('too many') ||
+        err?.status === 429
+      ) {
+        setError(
+          'Too many verification attempts. Please wait and try again.'
+        );
+      } else if (
+        message.includes('international') ||
+        message.includes('e.164') ||
+        message.includes('phone number')
+      ) {
+        setError(
+          'Please enter a valid international phone number.'
+        );
+      } else if (
+        message.includes('network') ||
+        message.includes('failed to fetch')
+      ) {
+        setError(
+          'Network error. Please check your connection and try again.'
+        );
+      } else {
+        setError(
+          err?.message ||
+            'Unable to send verification code. Please try again.'
+        );
+      }
     } finally {
       setLoading(false);
     }
   };
 
   const handleVerifyCode = async () => {
-    if (!verificationCode || !confirmationData) return;
+    if (
+      !verificationCode ||
+      verificationCode.length !== 6 ||
+      !transactionData ||
+      loading
+    ) {
+      return;
+    }
+
     setLoading(true);
     setError('');
+
     try {
-      await authService.verifyPhoneCode(verificationCode, confirmationData);
+      await authService.verifyPhoneCode(
+        verificationCode,
+        transactionData.transaction
+      );
+
       onSuccess();
     } catch (err: any) {
-      console.error("Verification error:", err);
-      setError("Invalid code. Please check and try again.");
+      console.error('Phone OTP verification error:', err);
+
+      const message = String(
+        err?.message || ''
+      ).toLowerCase();
+
+      if (
+        message.includes('invalid verification code') ||
+        message.includes('invalid verification')
+      ) {
+        setError(
+          'Invalid verification code. Please check the SMS and try again.'
+        );
+      } else if (
+        message.includes('expired') ||
+        err?.status === 410
+      ) {
+        setError(
+          'This verification session has expired. Please request a new code.'
+        );
+        setTransactionData(null);
+        setVerificationCode('');
+        setTimer(0);
+      } else if (
+        message.includes('network') ||
+        message.includes('failed to fetch')
+      ) {
+        setError(
+          'Network error. Please check your connection and try again.'
+        );
+      } else {
+        setError(
+          err?.message ||
+            'Verification failed. Please try again.'
+        );
+      }
     } finally {
       setLoading(false);
     }
@@ -128,11 +184,10 @@ export const PhoneAuthScreen: React.FC<PhoneAuthScreenProps> = ({ onSuccess, onB
 
   return (
     <div className="fixed inset-0 bg-[#0a0a0a] z-[300] flex flex-col items-center justify-center p-6 text-center">
-      <div id="recaptcha-container"></div>
-
       <button
         onClick={onBack}
         className="absolute top-8 left-6 p-2 hover:bg-white/5 rounded-full transition-colors"
+        aria-label="Go back"
       >
         <ChevronLeft size={24} className="text-gray-400" />
       </button>
@@ -143,22 +198,35 @@ export const PhoneAuthScreen: React.FC<PhoneAuthScreenProps> = ({ onSuccess, onB
           animate={{ scale: 1, opacity: 1 }}
           className="w-20 h-20 mx-auto rounded-3xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-2xl shadow-indigo-500/20"
         >
-          {confirmationData ? <ShieldCheck size={40} className="text-white" /> : <Phone size={40} className="text-white" />}
+          {transactionData ? (
+            <ShieldCheck
+              size={40}
+              className="text-white"
+            />
+          ) : (
+            <Phone
+              size={40}
+              className="text-white"
+            />
+          )}
         </motion.div>
 
         <div className="space-y-2">
           <h2 className="text-3xl font-black tracking-tighter text-white">
-            {confirmationData ? "Verify Code" : "Phone Identity"}
+            {transactionData
+              ? 'Verify Code'
+              : 'Phone Identity'}
           </h2>
+
           <p className="text-gray-400 text-sm leading-relaxed">
-            {confirmationData
+            {transactionData
               ? `We sent a 6-digit code to +${phoneNumber}`
-              : "Verify your phone number to connect with your contacts securely."}
+              : 'Verify your phone number to connect with your contacts securely.'}
           </p>
         </div>
 
         <AnimatePresence mode="wait">
-          {!confirmationData ? (
+          {!transactionData ? (
             <motion.div
               key="phone-input"
               initial={{ x: 20, opacity: 0 }}
@@ -168,24 +236,35 @@ export const PhoneAuthScreen: React.FC<PhoneAuthScreenProps> = ({ onSuccess, onB
             >
               <div className="phone-input-container">
                 <PhoneInput
-                  country={'us'}
+                  country="ug"
                   value={phoneNumber}
                   onChange={setPhoneNumber}
                   containerClass="!w-full"
                   inputClass="!w-full !h-14 !bg-white/5 !border-white/10 !rounded-2xl !text-white !text-lg !pl-14"
                   buttonClass="!bg-transparent !border-white/10 !rounded-l-2xl !w-12"
                   dropdownClass="!bg-[#1a1a1a] !text-white !border-white/10"
+                  disabled={loading}
+                  enableSearch
                 />
               </div>
 
-              {error && <p className="text-red-500 text-xs font-bold">{error}</p>}
+              {error && (
+                <p className="text-red-500 text-xs font-bold">
+                  {error}
+                </p>
+              )}
 
               <button
                 disabled={loading || !phoneNumber}
                 onClick={handleSendCode}
                 className="w-full h-14 bg-white text-black rounded-2xl font-bold uppercase tracking-widest text-xs flex items-center justify-center gap-2 disabled:opacity-50 transition-all hover:scale-[1.02] active:scale-[0.98]"
               >
-                {loading ? <RefreshCw size={18} className="animate-spin" /> : (
+                {loading ? (
+                  <RefreshCw
+                    size={18}
+                    className="animate-spin"
+                  />
+                ) : (
                   <>
                     Send Verification Code
                     <ArrowRight size={18} />
@@ -204,31 +283,59 @@ export const PhoneAuthScreen: React.FC<PhoneAuthScreenProps> = ({ onSuccess, onB
               <div className="flex justify-between gap-2">
                 <input
                   type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
                   maxLength={6}
                   value={verificationCode}
-                  onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, ''))}
+                  onChange={(event) =>
+                    setVerificationCode(
+                      event.target.value.replace(/\D/g, '')
+                    )
+                  }
                   placeholder="000000"
                   className="w-full h-16 bg-white/5 border border-white/10 rounded-2xl text-center text-3xl font-black tracking-[0.5em] text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                  disabled={loading}
                 />
               </div>
 
-              {error && <p className="text-red-500 text-xs font-bold">{error}</p>}
+              {error && (
+                <p className="text-red-500 text-xs font-bold">
+                  {error}
+                </p>
+              )}
 
               <div className="space-y-4">
                 <button
-                  disabled={loading || verificationCode.length !== 6}
+                  disabled={
+                    loading ||
+                    verificationCode.length !== 6
+                  }
                   onClick={handleVerifyCode}
                   className="w-full h-14 bg-indigo-600 text-white rounded-2xl font-bold uppercase tracking-widest text-xs flex items-center justify-center gap-2 disabled:opacity-50 transition-all hover:scale-[1.02] active:scale-[0.98]"
                 >
-                  {loading ? <RefreshCw size={18} className="animate-spin" /> : "Verify & Continue"}
+                  {loading ? (
+                    <RefreshCw
+                      size={18}
+                      className="animate-spin"
+                    />
+                  ) : (
+                    'Verify & Continue'
+                  )}
                 </button>
 
                 <button
-                  disabled={timer > 0}
-                  onClick={handleSendCode}
+                  disabled={timer > 0 || loading}
+                  onClick={() => {
+                    setTransactionData(null);
+                    setError('');
+                    setVerificationCode('');
+                    void handleSendCode();
+                  }}
                   className="text-xs font-bold text-gray-500 uppercase tracking-widest hover:text-white transition-colors disabled:opacity-50"
                 >
-                  {timer > 0 ? `Resend code in ${timer}s` : "Resend Code"}
+                  {timer > 0
+                    ? `Resend code in ${timer}s`
+                    : 'Resend Code'}
                 </button>
               </div>
             </motion.div>
@@ -245,16 +352,20 @@ export const PhoneAuthScreen: React.FC<PhoneAuthScreenProps> = ({ onSuccess, onB
           background: transparent !important;
           border: 1px solid rgba(255, 255, 255, 0.1) !important;
         }
+
         .phone-input-container .selected-flag {
           background: transparent !important;
         }
+
         .phone-input-container .country-list {
           background: #1a1a1a !important;
           border: 1px solid rgba(255, 255, 255, 0.1) !important;
         }
+
         .phone-input-container .country-list .country:hover {
           background: rgba(255, 255, 255, 0.05) !important;
         }
+
         .phone-input-container .country-list .country.highlight {
           background: rgba(99, 102, 241, 0.2) !important;
         }

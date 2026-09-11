@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://dcalls-2d01d.web.app/sitemap.xml

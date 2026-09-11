@@ -2,10 +2,12 @@ import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ArrowLeft, Send, Plus, Mic, Image, MapPin, User, FileText, Info, Wand2, X, Lock, ShieldCheck, Volume2, VolumeX, Check, CheckCheck, ThumbsUp, ThumbsDown } from 'lucide-react';
 import { DcallsIcon } from './DcallsIcon';
+import { ErrorBanner } from './ErrorBanner';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import { GoogleGenAI, Modality } from "@google/genai";
-import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, doc, getDoc, updateDoc, setDoc, writeBatch } from 'firebase/firestore';
+import { getTTS, getDamaiResponse, getFastSummary } from '../services/gemini';
+const API_BASE = import.meta.env.VITE_API_BASE_URL;
+import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, doc, getDoc, updateDoc, setDoc, writeBatch, getDocs } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 import { handleFirestoreError, OperationType } from '../utils/firestoreErrorHandler';
 import { databaseService } from '../services/databaseService';
@@ -14,8 +16,6 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { CryptoService } from '../services/cryptoService';
 
-const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
-const ai = GEMINI_API_KEY ? new GoogleGenAI({ apiKey: GEMINI_API_KEY }) : null;
 
 // Speech Recognition setup
 const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -41,6 +41,92 @@ interface ChatInterfaceProps {
 
 // Plaintext cache for RSA-encrypted messages the sender cannot decrypt with their private key
 const sentPlaintextCache = new Map<string, string>();
+const PLAIN_CACHE_KEY = 'dcalls_sent_plaintexts_v1';
+
+// Decrypted message cache to avoid repeated expensive decrypt operations
+const decryptedCache = new Map<string, string>();
+const DECRYPT_CACHE_KEY = 'dcalls_decrypted_v1';
+
+function loadDecryptedCache() {
+  try {
+    const raw = localStorage.getItem(DECRYPT_CACHE_KEY);
+    if (!raw) return;
+    const obj = JSON.parse(raw) as Record<string, string>;
+    Object.entries(obj).forEach(([k, v]) => decryptedCache.set(k, v));
+  } catch {}
+}
+
+function saveDecryptedCache() {
+  try {
+    const obj: Record<string, string> = {};
+    decryptedCache.forEach((v, k) => (obj[k] = v));
+    localStorage.setItem(DECRYPT_CACHE_KEY, JSON.stringify(obj));
+  } catch {}
+}
+
+// Failed decryption map to avoid repeated expensive retries for the same message
+const failedDecryptMap = new Map<string, number>(); // messageId -> timestamp (ms)
+const FAILED_DECRYPT_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
+
+function markDecryptFailed(id: string) {
+  try { failedDecryptMap.set(id, Date.now()); } catch {}
+}
+
+function shouldSkipDecrypt(id: string) {
+  const t = failedDecryptMap.get(id);
+  if (!t) return false;
+  return (Date.now() - t) < FAILED_DECRYPT_COOLDOWN_MS;
+}
+
+function loadPlaintextCache() {
+  try {
+    const raw = localStorage.getItem(PLAIN_CACHE_KEY);
+    if (!raw) return;
+    const obj = JSON.parse(raw) as Record<string, string>;
+    Object.entries(obj).forEach(([k, v]) => sentPlaintextCache.set(k, v));
+  } catch {
+    // ignore
+  }
+}
+
+function savePlaintextCache() {
+  try {
+    const obj: Record<string, string> = {};
+    sentPlaintextCache.forEach((v, k) => (obj[k] = v));
+    localStorage.setItem(PLAIN_CACHE_KEY, JSON.stringify(obj));
+  } catch {
+    // ignore
+  }
+}
+
+function setSentPlaintext(id: string, text: string) {
+  sentPlaintextCache.set(id, text);
+  savePlaintextCache();
+  try {
+    window.dispatchEvent(new CustomEvent('dcalls:plain-set', { detail: { id } }));
+  } catch {}
+}
+
+// When a sent plaintext is set, also populate decrypted cache for that message id
+function setSentPlaintextAndDecrypted(id: string, text: string) {
+  setSentPlaintext(id, text);
+  decryptedCache.set(id, text);
+  saveDecryptedCache();
+}
+
+function getSentPlaintext(id: string) {
+  return sentPlaintextCache.get(id);
+}
+
+// Hydrate both persistent plaintext caches on module load.
+// This lets previously decrypted messages render immediately after
+// reopening the app or returning to a conversation.
+try {
+  loadPlaintextCache();
+  loadDecryptedCache();
+} catch {
+  // ignore cache hydration errors
+}
 
 export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   chatId,
@@ -58,6 +144,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const [isRefining, setIsRefining] = useState(false);
   const [showContactInfo, setShowContactInfo] = useState(false);
   const [isVoiceOutputEnabled, setIsVoiceOutputEnabled] = useState(true);
+  const [aiError, setAiError] = useState<string | null>(null);
   const [uploadingFile, setUploadingFile] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -140,27 +227,15 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   };
 
   const speakText = async (text: string) => {
-    if (!isVoiceOutputEnabled || !ai) return;
+    if (!isVoiceOutputEnabled) return;
     try {
-      const response = await ai.models.generateContent({
-        model: "gemini-2.0-flash",
-        contents: [{ parts: [{ text }] }],
-        config: {
-          responseModalities: [Modality.AUDIO],
-          speechConfig: {
-            voiceConfig: {
-              prebuiltVoiceConfig: { voiceName: 'Aoede' },
-            },
-          },
-        },
-      });
-      const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+      const base64Audio = await getTTS(text);
       if (base64Audio) {
         const audio = new Audio(`data:audio/mp3;base64,${base64Audio}`);
         audio.play();
       }
     } catch (error) {
-      console.error("TTS failed", error);
+      console.error('TTS failed', error);
     }
   };
 
@@ -384,51 +459,40 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   }, [messages]);
 
   const handleRefine = async () => {
-    if (!inputText.trim() || !ai) return;
+    if (!inputText.trim() || !API_BASE) return;
     setIsRefining(true);
     try {
-      const response = await ai.models.generateContent({
-        model: "gemini-1.5-flash",
-        contents: `Refine and improve the following message to be more professional and clear, but keep the same meaning: "${inputText}". Only provide the refined text.`,
-        config: {
-          systemInstruction: "You are a helpful writing assistant. Provide only the refined text without any extra comments or quotes.",
-        }
-      });
-      if (response.text) {
-        setInputText(response.text.trim());
+      const response = await getDamaiResponse(`Refine and improve the following message to be more professional and clear, but keep the same meaning: "${inputText}". Only provide the refined text.`);
+      if (response) {
+        setInputText(response.trim());
       }
     } catch (error) {
-      console.error("Refinement failed", error);
+      console.error('Refinement failed', error);
     } finally {
       setIsRefining(false);
     }
   };
-
   const handleSend = async () => {
     if (!inputText.trim() || !auth.currentUser) return;
-
     const text = inputText.trim();
     setInputText('');
 
+    const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
+    const optimisticMsg: Message = {
+      id: tempId,
+      chatId,
+      senderId: auth.currentUser.uid,
+      text,
+      timestamp: new Date() as any,
+      type: 'text',
+      status: 'sending'
+    };
+    setMessages(prev => [...prev, optimisticMsg]);
+
     try {
-      // Optimistic UI: create a temporary local message so UI is instant
-      const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
-      const optimisticMsg: Message = {
-        id: tempId,
-        chatId,
-        senderId: auth.currentUser.uid,
-        text: text,
-        timestamp: new Date() as any,
-        type: 'text',
-        status: 'sending'
-      };
-
-      setMessages(prev => [...prev, optimisticMsg]);
-
       const crypto = await ensureEncryptionReady();
       const messagesRef = collection(db, 'chats', chatId, 'messages');
 
-      // Encrypt if partner has keys
       let encryptedText = text;
       let isEncrypted = false;
       let encryptionMethod: 'rsa' | 'symmetric' | undefined;
@@ -451,134 +515,67 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
               encryptionMethod = 'symmetric';
             }
           } catch (e) {
-            console.error("Encryption failed", e);
-            // keep plaintext in optimistic UI, but send encryptedText fallback
+            console.error('Encryption failed', e);
           }
         }
       }
 
-      try {
-        const messageRef = await addDoc(messagesRef, {
-          chatId,
-          clientId: tempId,
-          senderId: auth.currentUser.uid,
-          text: encryptedText,
-          isEncrypted,
-          ...(encryptionMethod ? { encryptionMethod } : {}),
-          timestamp: serverTimestamp(),
-          type: 'text',
-          status: 'sent'
-        });
+      const messageRef = await addDoc(messagesRef, {
+        chatId,
+        clientId: tempId,
+        senderId: auth.currentUser.uid,
+        text: encryptedText,
+        isEncrypted,
+        ...(encryptionMethod ? { encryptionMethod } : {}),
+        timestamp: serverTimestamp(),
+        type: 'text',
+        status: 'sent'
+      });
 
-        // Store plaintext locally for sender if RSA
-        if (isEncrypted && encryptionMethod === 'rsa') {
-          sentPlaintextCache.set(messageRef.id, text);
-        }
-
-        // Reconcile optimistic message: replace tempId with server id and mark sent
-        setMessages(prev => prev.map(m => m.id === tempId ? ({ ...m, id: messageRef.id, status: 'sent' }) : m));
-
-        // Update last message in chat doc (store unencrypted or a placeholder for privacy)
-        await updateDoc(doc(db, 'chats', chatId), {
-          lastMessage: isEncrypted ? "🔒 Encrypted Message" : text,
-          lastMessageTime: serverTimestamp()
-        });
-      } catch (err) {
-        console.error('Error sending message:', err);
-        // mark optimistic message as failed
-        setMessages(prev => prev.map(m => m.id === tempId ? ({ ...m, status: 'failed' }) : m));
+      if (isEncrypted && encryptionMethod === 'rsa') {
+        setSentPlaintextAndDecrypted(messageRef.id, text);
       }
 
-      // Check for @Damai commands
+      setMessages(prev => prev.map(m => m.id === tempId ? ({ ...m, id: messageRef.id, status: 'sent' }) : m));
+
+      await updateDoc(doc(db, 'chats', chatId), {
+        lastMessage: isEncrypted ? '🔒 Encrypted Message' : text,
+        lastMessageTime: serverTimestamp()
+      });
+
+      // Damai commands
       const lowerText = text.toLowerCase();
-
-      if (lowerText.includes('@damai') && ai) {
+      if (lowerText.includes('@damai') && API_BASE) {
         try {
-          let aiResponse = "";
-          const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
-          const persona = userDoc.data()?.settings?.damaiPersona || 'professional';
-
-          const personaInstructions = {
-            professional: `You are a professional, highly organized, and efficient assistant. 
-            Use clear headings, bullet points, and a formal tone. 
-            ALWAYS format your responses using Markdown for maximum readability. 
-            Use bold text for key terms and tables for data where appropriate.`,
-            friendly: `You are a warm, empathetic, and conversational companion. 
-            Use emojis, friendly language, and a helpful tone. 
-            Format your responses with Markdown, using blockquotes for emphasis and lists for clarity.`,
-            concise: `You are a brief, direct, and data-driven expert. 
-            Provide only the most essential information in a very compact format. 
-            Use Markdown bolding and short lists.`
-          };
-
           const basePrompt = `Respond to the following request in an organized and visually attractive way using Markdown. Use dividers, bold headers, and lists where appropriate.\n\nRequest: `;
-
+          let aiResponse = '';
           if (lowerText.includes('summarize')) {
-            const chatHistory = messages.map(m => `${m.senderId === auth.currentUser?.uid ? 'User' : 'Partner'}: ${m.text}`).join('\n');
-            const response = await ai.models.generateContent({
-              model: "gemini-1.5-flash",
-              contents: `${basePrompt}Summarize the following conversation history between two users:\n\n${chatHistory}`,
-              config: {
-                systemInstruction: personaInstructions[persona as keyof typeof personaInstructions],
-              }
-            });
-            aiResponse = response.text || "I couldn't generate a summary at this time.";
-          } else if (lowerText.includes('reminder')) {
-            const response = await ai.models.generateContent({
-              model: "gemini-1.5-flash",
-              contents: `${basePrompt}The user wants to set a reminder. Extract the task and time from this message: "${text}". Then confirm it with a clear, attractive layout.`,
-              config: {
-                systemInstruction: personaInstructions[persona as keyof typeof personaInstructions],
-              }
-            });
-            aiResponse = response.text || "Reminder set!";
-          } else if (lowerText.includes('calendar') || lowerText.includes('event')) {
-            const response = await ai.models.generateContent({
-              model: "gemini-1.5-flash",
-              contents: `${basePrompt}The user wants to create a calendar event. Extract the event details and date/time from this message: "${text}". Then confirm it with a professional layout.`,
-              config: {
-                systemInstruction: personaInstructions[persona as keyof typeof personaInstructions],
-              }
-            });
-            aiResponse = response.text || "Event created!";
-          } else if (lowerText.includes('poll')) {
-            const response = await ai.models.generateContent({
-              model: "gemini-1.5-flash",
-              contents: `${basePrompt}The user wants to initiate a poll. Extract the question and options from this message: "${text}". Format it as a visually appealing poll using Markdown tables or lists.`,
-              config: {
-                systemInstruction: personaInstructions[persona as keyof typeof personaInstructions],
-              }
-            });
-            aiResponse = response.text || "Poll initiated!";
+            const chatHistory = (await getDocs(query(collection(db, 'chats', chatId, 'messages'), orderBy('timestamp', 'asc')))).docs.map(d => d.data()).map((m: any) => `${m.senderId === auth.currentUser?.uid ? 'User' : 'Partner'}: ${m.text}`).join('\n');
+            aiResponse = (await getFastSummary(chatHistory)) || "I couldn't generate a summary at this time.";
           } else {
-            const response = await ai.models.generateContent({
-              model: "gemini-1.5-flash",
-              contents: `${basePrompt}${text}`,
-              config: {
-                systemInstruction: personaInstructions[persona as keyof typeof personaInstructions],
-              }
-            });
-            aiResponse = response.text || "I'm here to help!";
+            aiResponse = (await getDamaiResponse(`${basePrompt}${text}`)) || "I'm here to help!";
           }
 
           if (aiResponse) {
+            await addDoc(messagesRef, {
+              chatId,
+              senderId: 'ai',
+              text: aiResponse,
+              timestamp: serverTimestamp(),
+              type: 'text',
+              isAi: true
+            });
             speakText(aiResponse);
           }
-
-          await addDoc(messagesRef, {
-            chatId,
-            senderId: 'ai',
-            text: aiResponse,
-            timestamp: serverTimestamp(),
-            type: 'text',
-            isAi: true
-          });
-        } catch (error) {
-          console.error("Damai command failed", error);
+          } catch (err: any) {
+          console.error('Damai command failed:', err);
+          setAiError(err?.message ? String(err.message) : String(err));
         }
       }
-    } catch (error) {
-      console.error("Error sending message:", error);
+    } catch (error: any) {
+      console.error('Error sending message:', error);
+      setAiError(error?.message ? String(error.message) : String(error));
+      setMessages(prev => prev.map(m => m.id === tempId ? ({ ...m, status: 'failed' }) : m));
     }
   };
 
@@ -587,6 +584,19 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     const [decryptionStatus, setDecryptionStatus] = useState<'idle' | 'decrypting' | 'success' | 'failed'>('idle');
 
     const decrypt = async () => {
+      // Check shared cache first to avoid re-decrypting the same message repeatedly
+      const cached = decryptedCache.get(msg.id);
+      if (cached !== undefined) {
+        setDecryptedText(cached);
+        setDecryptionStatus('success');
+        return;
+      }
+      // Skip repeated decrypt attempts if we recently failed for this message
+      if (shouldSkipDecrypt(msg.id)) {
+        setDecryptionStatus('failed');
+        setDecryptedText('Unable to decrypt this message. Retrying later.');
+        return;
+      }
       if ((msg as any).isEncrypted && msg.senderId !== auth.currentUser?.uid) {
         setDecryptionStatus('decrypting');
         try {
@@ -595,6 +605,10 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
           try {
             const decrypted = await crypto.decryptMessage(msg.text);
             setDecryptedText(decrypted);
+            // Cache decrypted result
+            try { decryptedCache.set(msg.id, decrypted); saveDecryptedCache(); } catch {}
+            // Clear any failure marker
+            try { failedDecryptMap.delete(msg.id); } catch {}
             setDecryptionStatus('success');
           } catch (e) {
             const partnerId = chatPartner?.id;
@@ -602,31 +616,35 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             const secret = crypto.deriveChatSecret(chatId, auth.currentUser.uid, partnerId);
             const decrypted = await crypto.decryptSymmetric(msg.text, secret);
             setDecryptedText(decrypted);
+            try { decryptedCache.set(msg.id, decrypted); saveDecryptedCache(); } catch {}
+            try { failedDecryptMap.delete(msg.id); } catch {}
             setDecryptionStatus('success');
           }
         } catch (e) {
           console.error("Decryption failed", e);
           setDecryptionStatus('failed');
           setDecryptedText("Unable to decrypt this message. The key might be missing or invalid.");
+          try { markDecryptFailed(msg.id); } catch {}
         }
       } else if ((msg as any).isEncrypted && msg.senderId === auth.currentUser?.uid) {
         setDecryptionStatus('decrypting');
         try {
           const method = (msg as any).encryptionMethod as string | undefined;
           if (method === 'rsa') {
-            const cached = sentPlaintextCache.get(msg.id);
+            const cached = getSentPlaintext(msg.id) || decryptedCache.get(msg.id);
             if (cached) {
               setDecryptedText(cached);
               setDecryptionStatus('success');
             } else {
-              setDecryptedText('Encrypted message (open on this device where you sent it)');
-              setDecryptionStatus('success');
+              setDecryptedText('Decrypting (waiting for local cache)');
+              setDecryptionStatus('decrypting');
             }
           } else if (method === 'symmetric' && chatPartner?.id && auth.currentUser) {
             const crypto = await ensureEncryptionReady();
             const secret = crypto.deriveChatSecret(chatId, auth.currentUser.uid, chatPartner.id);
             const decrypted = await crypto.decryptSymmetric(msg.text, secret);
             setDecryptedText(decrypted);
+            try { decryptedCache.set(msg.id, decrypted); saveDecryptedCache(); } catch {}
             setDecryptionStatus('success');
           } else {
             setDecryptedText(msg.text);
@@ -641,9 +659,61 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
       }
     };
 
+    const lastMsgTextRef = useRef<string | null>(null);
     useEffect(() => {
-      decrypt();
-    }, [msg]);
+      // Cached plaintext always wins. Do not show a decrypting state
+      // for a message that Dcalls has already decrypted before.
+      const cached = decryptedCache.get(msg.id);
+      const sentCached = getSentPlaintext(msg.id);
+
+      if (cached !== undefined || sentCached !== undefined) {
+        const plaintext = cached !== undefined ? cached : sentCached!;
+        setDecryptedText(plaintext);
+        setDecryptionStatus('success');
+        lastMsgTextRef.current = msg.text;
+        return;
+      }
+
+      // Avoid re-running decrypt if the message text hasn't changed
+      // and this component already completed successfully.
+      if (lastMsgTextRef.current === msg.text && decryptionStatus === 'success') {
+        return;
+      }
+
+      lastMsgTextRef.current = msg.text;
+
+      if ((msg as any).isEncrypted || (msg as any).encryptionMethod) {
+        decrypt();
+      } else {
+        setDecryptionStatus('success');
+        setDecryptedText(msg.text);
+      }
+    }, [msg.id, msg.text, chatPartner?.id]);
+
+    useEffect(() => {
+      const handler = (ev: any) => {
+        try {
+          const detailId = ev?.detail?.id;
+          if (detailId === msg.id) {
+            // Local plaintext is now available. Render it directly
+            // instead of entering the decryption path again.
+            const cached = decryptedCache.get(msg.id);
+            const sentCached = getSentPlaintext(msg.id);
+
+            if (cached !== undefined || sentCached !== undefined) {
+              const plaintext = cached !== undefined ? cached : sentCached!;
+              setDecryptedText(plaintext);
+              setDecryptionStatus('success');
+              return;
+            }
+
+            decrypt();
+          }
+        } catch {}
+      };
+      window.addEventListener('dcalls:plain-set', handler as EventListener);
+      return () => window.removeEventListener('dcalls:plain-set', handler as EventListener);
+    }, [msg.id]);
 
     const isMe = msg.senderId === auth.currentUser?.uid;
     const isAi = msg.senderId === 'ai' || msg.isAi;

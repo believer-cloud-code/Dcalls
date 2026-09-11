@@ -1,20 +1,8 @@
 import { getDamaiResponse } from './gemini';
-
-const SPEECH_LANG: Record<string, string> = {
-  en: 'en-US',
-  es: 'es-ES',
-  fr: 'fr-FR',
-  de: 'de-DE',
-  zh: 'zh-CN',
-  ja: 'ja-JP',
-  ko: 'ko-KR',
-  ar: 'ar-SA',
-  pt: 'pt-BR',
-  ru: 'ru-RU',
-};
+import { getLanguageByCode } from '../config/languages';
 
 export function speechLangForCode(code: string): string {
-  return SPEECH_LANG[code] ?? 'en-US';
+  return getLanguageByCode(code).speechLocale;
 }
 
 /** Translate a short utterance for live call captions. Returns original text on failure. */

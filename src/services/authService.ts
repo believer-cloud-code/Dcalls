@@ -1,16 +1,16 @@
 import {
-  signInWithPhoneNumber,
-  ConfirmationResult,
-  RecaptchaVerifier,
+  signInWithCustomToken,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   GoogleAuthProvider,
   User as FirebaseUser,
   onAuthStateChanged,
-  signOut,
-  updateProfile
+  updateProfile,
 } from 'firebase/auth';
 import { auth as firebaseAuth, googleProvider } from '../firebase';
 import { Preferences } from '@capacitor/preferences';
+import { callWorkerJson } from './cloudflareApi';
 
 export interface UnifiedUser {
   uid: string;
@@ -21,23 +21,91 @@ export interface UnifiedUser {
   provider: 'firebase';
 }
 
+export interface PhoneOtpTransaction {
+  ok: boolean;
+  transaction: string;
+  phoneNumber: string;
+}
+
+export interface PhoneOtpVerification {
+  ok: boolean;
+  customToken: string;
+  idToken: string;
+  refreshToken: string;
+  expiresIn: string;
+  uid: string;
+  phoneNumber: string;
+}
+
 class AuthService {
-  constructor() {
-  }
+  constructor() {}
 
   async signInWithGoogle(): Promise<UnifiedUser> {
-    const result = await signInWithPopup(firebaseAuth, googleProvider);
-    return this.mapFirebaseUser(result.user);
+    try {
+      const result = await signInWithPopup(firebaseAuth, googleProvider);
+      return this.mapFirebaseUser(result.user);
+    } catch (err: any) {
+      const shouldFallback =
+        err?.code === 'auth/operation-not-supported-in-this-environment' ||
+        err?.code === 'auth/popup-blocked' ||
+        err?.code === 'auth/cancelled-popup-request' ||
+        err?.code === 'auth/unauthorized-domain' ||
+        /popup/i.test(err?.message || '');
+
+      if (shouldFallback) {
+        await signInWithRedirect(firebaseAuth, googleProvider);
+        throw new Error('Redirecting to Google sign-in...');
+      }
+
+      throw err;
+    }
   }
 
-  async sendPhoneCode(phoneNumber: string, verifier: RecaptchaVerifier): Promise<ConfirmationResult> {
-    const result = await signInWithPhoneNumber(firebaseAuth, phoneNumber, verifier);
-    return result;
+  /**
+   * Send a phone verification code through the Dcalls Cloudflare Worker.
+   *
+   * Firebase Phone Auth / reCAPTCHA is intentionally NOT used here.
+   * The Worker talks directly to Vonage Verify so the Vonage credentials
+   * never reach the browser.
+   */
+  async sendPhoneCode(phoneNumber: string): Promise<PhoneOtpTransaction> {
+    return callWorkerJson('/auth/send-otp', {
+      method: 'POST',
+      body: JSON.stringify({
+        phoneNumber,
+      }),
+    });
   }
 
-  async verifyPhoneCode(code: string, confirmationResult: ConfirmationResult): Promise<UnifiedUser> {
-    const result = await confirmationResult.confirm(code);
-    return this.mapFirebaseUser(result.user);
+  /**
+   * Verify the Vonage OTP through the Worker and establish a Firebase
+   * authenticated session using the Firebase custom token returned by
+   * the Worker.
+   */
+  async verifyPhoneCode(
+    code: string,
+    transaction: string
+  ): Promise<UnifiedUser> {
+    const result = await callWorkerJson('/auth/verify-otp', {
+      method: 'POST',
+      body: JSON.stringify({
+        transaction,
+        code,
+      }),
+    }) as PhoneOtpVerification;
+
+    if (!result?.customToken) {
+      throw new Error(
+        'Phone verification succeeded but Firebase authentication token was not returned.'
+      );
+    }
+
+    const credentialResult = await signInWithCustomToken(
+      firebaseAuth,
+      result.customToken
+    );
+
+    return this.mapFirebaseUser(credentialResult.user);
   }
 
   private mapFirebaseUser(user: FirebaseUser): UnifiedUser {
@@ -47,43 +115,75 @@ class AuthService {
       displayName: user.displayName,
       photoURL: user.photoURL,
       phoneNumber: user.phoneNumber,
-      provider: 'firebase'
+      provider: 'firebase',
     };
   }
 
-  async updateProfile(data: { displayName?: string; photoURL?: string }) {
+  async updateProfile(data: {
+    displayName?: string;
+    photoURL?: string;
+  }) {
     if (firebaseAuth.currentUser) {
       await updateProfile(firebaseAuth.currentUser, data);
     }
   }
 
-  onAuthStateChanged(callback: (user: UnifiedUser | null) => void) {
+  onAuthStateChanged(
+    callback: (user: UnifiedUser | null) => void
+  ) {
     let lastUser: UnifiedUser | null = null;
 
     const emit = (user: UnifiedUser | null) => {
-      // Avoid redundant calls
       if (JSON.stringify(user) === JSON.stringify(lastUser)) return;
+
       lastUser = user;
 
-      // Persist session
       if (user) {
-        localStorage.setItem('dcalls_user', JSON.stringify(user));
-        Preferences.set({ key: 'dcalls_user', value: JSON.stringify(user) });
+        localStorage.setItem(
+          'dcalls_user',
+          JSON.stringify(user)
+        );
+
+        Preferences.set({
+          key: 'dcalls_user',
+          value: JSON.stringify(user),
+        });
       } else {
         localStorage.removeItem('dcalls_user');
-        Preferences.remove({ key: 'dcalls_user' });
+        Preferences.remove({
+          key: 'dcalls_user',
+        });
       }
 
       callback(user);
     };
 
-    const unsubscribe = onAuthStateChanged(firebaseAuth, (user) => {
-      if (user) {
-        emit(this.mapFirebaseUser(user));
-      } else {
-        emit(null);
+    const unsubscribe = onAuthStateChanged(
+      firebaseAuth,
+      (user) => {
+        if (user) {
+          emit(this.mapFirebaseUser(user));
+        } else {
+          emit(null);
+        }
       }
-    });
+    );
+
+    // Process Google redirect authentication once on startup.
+    (async () => {
+      try {
+        const result = await getRedirectResult(firebaseAuth);
+
+        if (result?.user) {
+          emit(this.mapFirebaseUser(result.user));
+        }
+      } catch (err: any) {
+        console.warn(
+          'getRedirectResult error:',
+          err?.code || err?.message || err
+        );
+      }
+    })();
 
     return unsubscribe;
   }
@@ -93,11 +193,27 @@ class AuthService {
   }
 
   async getCachedUser(): Promise<UnifiedUser | null> {
-    const { value } = await Preferences.get({ key: 'dcalls_user' });
-    if (value) return JSON.parse(value);
+    const { value } = await Preferences.get({
+      key: 'dcalls_user',
+    });
+
+    if (value) {
+      try {
+        return JSON.parse(value);
+      } catch {
+        // Ignore corrupt cached value and fall back to localStorage.
+      }
+    }
 
     const local = localStorage.getItem('dcalls_user');
-    if (local) return JSON.parse(local);
+
+    if (local) {
+      try {
+        return JSON.parse(local);
+      } catch {
+        return null;
+      }
+    }
 
     return null;
   }

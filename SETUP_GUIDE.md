@@ -1,99 +1,61 @@
-# Dcalls Setup Guide - DeepSeek, OpenRouter & Gemini Integration
+# Dcalls Setup Guide - Cloudflare Worker + R2 Migration
 
 ## Overview
 
-Dcalls now supports three AI providers for the Damai AI assistant:
-1. **DeepSeek AI** (Primary - Recommended)
-2. **OpenRouter** (Secondary - Multi-model)
-3. **Gemini API** (Fallback - Reliable)
+This project keeps Firebase Auth and Firestore unchanged, while moving the Blaze-only backend functions to Cloudflare Worker and Storage to Cloudflare R2.
 
-The app automatically selects the first available provider. Configure as many as you want for redundancy.
+The app should prefer the Worker for AI requests and file uploads once the Cloudflare setup is complete.
 
 ---
 
-## 1. Set Up DeepSeek API (Recommended)
+## 1. Set Up Cloudflare Secrets
 
-### Why DeepSeek?
-- Fast response times
-- Cost-effective
-- Excellent for real-time translations and summaries
+Do not place API keys in frontend env files or Git-tracked files.
+Create Cloudflare Worker secrets instead:
 
-### Steps:
-
-1. Visit [DeepSeek Platform](https://platform.deepseek.com/)
-2. Sign up for a free account
-3. Navigate to **API Keys** in your dashboard
-4. Click **Create New API Key**
-5. Copy your API key
-6. Add to `.env.local`:
-   ```
-   VITE_DEEPSEEK_API_KEY=sk_your_deepseek_key_here
-   ```
+```bash
+wrangler secret put DEEPSEEK_API_KEY
+wrangler secret put OPENROUTER_API_KEY
+wrangler secret put FIREBASE_WEB_API_KEY
+```
 
 ---
 
-## 2. Set Up OpenRouter API (Optional - Secondary Provider)
+## 2. Set Up the Cloudflare Worker Secrets
 
-### Why OpenRouter?
-- Access to multiple AI models
-- Good fallback option
-- Excellent for testing different models
+This app must not expose AI provider secrets in VITE_ variables.
+Use Cloudflare Worker secrets instead:
 
-### Steps:
+```bash
+wrangler secret put DEEPSEEK_API_KEY
+wrangler secret put OPENROUTER_API_KEY
+wrangler secret put FIREBASE_WEB_API_KEY
+```
 
-1. Visit [OpenRouter.ai](https://openrouter.ai/)
-2. Sign up for a free account
-3. Go to **Settings** → **API Keys**
-4. Create a new API key
-5. Copy your API key
-6. Add to `.env.local`:
-   ```
-   VITE_OPENROUTER_API_KEY=sk_your_openrouter_key_here
-   ```
+The Worker reads these directly and never exposes them to the browser.
 
 ---
 
-## 3. Set Up Gemini API (Optional - Fallback Provider)
+## 3. Frontend env values
 
-### Why Gemini?
-- Reliable Google-backed AI
-- Good fallback when other providers are down
-- Free tier available
-
-### Steps:
-
-1. Visit [Google AI Studio](https://ai.google.dev/)
-2. Click **Get API Key**
-3. Create a new project or select existing
-4. Generate API key
-5. Copy your API key
-6. Add to `.env.local`:
-   ```
-   VITE_GEMINI_API_KEY=your_gemini_api_key_here
-   ```
-
----
-
-## 4. Complete `.env.local` Example
+Only the Worker URL and R2 public URL belong in frontend env configuration:
 
 ```env
-# Firebase (Required)
-VITE_FIREBASE_API_KEY=YOUR_FIREBASE_API_KEY
-VITE_FIREBASE_AUTH_DOMAIN=your-project.firebaseapp.com
-VITE_FIREBASE_PROJECT_ID=your-project-id
-VITE_FIREBASE_STORAGE_BUCKET=your-project.appspot.com
-VITE_FIREBASE_MESSAGING_SENDER_ID=123456789
-VITE_FIREBASE_APP_ID=1:123456789:web:abcdef123456
-
-# AI Providers (At least one required)
-VITE_DEEPSEEK_API_KEY=sk_test_your_deepseek_key
-VITE_OPENROUTER_API_KEY=sk_test_your_openrouter_key
-VITE_GEMINI_API_KEY=AIza_your_gemini_key
-
-# Optional Settings
-VITE_APP_ENV=development
-VITE_API_URL=http://localhost:3000
+VITE_CLOUDFLARE_WORKER_URL=http://localhost:8787
+VITE_CLOUDFLARE_R2_PUBLIC_URL=https://<your-r2-public-url>
 ```
+
+---
+
+## 4. Cloudflare Worker behavior
+
+### AI actions supported by the Worker
+- Chat: implemented through DeepSeek/OpenRouter when configured
+- Summary: implemented through DeepSeek/OpenRouter when configured
+- Transcription: currently requires a provider such as DeepSeek
+- TTS: requires a dedicated speech provider and is not enabled by default until one is configured
+
+The app intentionally uses the Worker as the production path, while Firebase Auth/Firestore remain unchanged.
 
 ---
 
@@ -138,12 +100,12 @@ Error: No AI provider available
 ## 7. Troubleshooting
 
 ### "No AI provider available" Error
-- Check that at least one API key is set in `.env.local`
+- Check that at least one AI provider secret is set on the Cloudflare Worker
 - Verify your API keys are correct
 - Check your internet connection
 
 ### Slow Responses
-- DeepSeek is fastest; ensure VITE_DEEPSEEK_API_KEY is configured
+- DeepSeek is fastest; ensure the Worker has DEEPSEEK_API_KEY configured
 - Check your internet speed
 - Consider your API provider's current load
 

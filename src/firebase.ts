@@ -1,6 +1,10 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, RecaptchaVerifier } from 'firebase/auth';
-import { initializeFirestore } from 'firebase/firestore';
+import {
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+} from 'firebase/firestore';
 import { getMessaging } from 'firebase/messaging';
 import { getStorage } from 'firebase/storage';
 import firebaseConfigData from '../firebase-applet-config.json';
@@ -22,8 +26,14 @@ const dbId = import.meta.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || '(default)';
 export const db = initializeFirestore(app, {
   // Long polling is more efficient for mobile and intermittent connections
   experimentalForceLongPolling: true,
-  // Cache settings optimized for offline support on free tier
-  cacheSizeBytes: 40 * 1024 * 1024, // 40MB local cache (default)
+
+  // Persist Firestore data locally so previously loaded messages
+  // remain available when the device is temporarily offline.
+  localCache: persistentLocalCache({
+    cacheSizeBytes: 40 * 1024 * 1024,
+    tabManager: persistentMultipleTabManager(),
+  }),
+
   ignoreUndefinedProperties: true,
 }, dbId);
 

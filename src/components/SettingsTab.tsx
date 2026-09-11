@@ -7,6 +7,8 @@ import { db } from '../firebase';
 import { deviceService } from '../services/deviceService';
 import { openHelp, getPrivacyUrl } from '../config/urls';
 import { doc, updateDoc } from 'firebase/firestore';
+import { LANGUAGE_NAMES } from '../config/languages';
+import { requestNotificationPermission } from '../services/notificationService';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -327,7 +329,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ user }) => {
                   <div className="space-y-4">
                     <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-[0.2em]">Default Language</h3>
                     <div className="grid grid-cols-2 gap-3">
-                      {['English', 'Spanish', 'French', 'German', 'Chinese', 'Japanese'].map(lang => (
+                      {LANGUAGE_NAMES.map(lang => (
                         <button
                           key={lang}
                           onClick={() => {
@@ -368,9 +370,13 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ user }) => {
                     desc="Show notifications for new messages"
                     toggle
                     checked={notificationsEnabled}
-                    onChange={(val) => {
+                    onChange={async (val) => {
                       setNotificationsEnabled(val);
-                      updateSetting('notifications', val);
+                      await updateSetting('notifications', val);
+
+                      if (val) {
+                        await requestNotificationPermission();
+                      }
                     }}
                   />
                   <div className="space-y-4">
@@ -568,7 +574,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ user }) => {
                           }}
                           className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-indigo-500/50"
                         >
-                          {['English', 'Spanish', 'French', 'German', 'Chinese', 'Japanese', 'Korean', 'Portuguese', 'Russian', 'Italian'].map(lang => (
+                          {LANGUAGE_NAMES.map(lang => (
                             <option key={lang} value={lang} className="bg-[#121212]">{lang}</option>
                           ))}
                         </select>
@@ -586,7 +592,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ user }) => {
                           }}
                           className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-indigo-500/50"
                         >
-                          {['English', 'Spanish', 'French', 'German', 'Chinese', 'Japanese', 'Korean', 'Portuguese', 'Russian', 'Italian'].map(lang => (
+                          {LANGUAGE_NAMES.map(lang => (
                             <option key={lang} value={lang} className="bg-[#121212]">{lang}</option>
                           ))}
                         </select>

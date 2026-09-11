@@ -1,0 +1,23 @@
+name = "dcalls-worker"
+main = "worker.ts"
+compatibility_date = "2025-08-28"
+
+[vars]
+PUBLIC_URL = "https://pub-b570560755b64f58b4670bfa5870cc48.r2.dev"
+ALLOWED_ORIGINS = "http://localhost:3000,https://localhost,capacitor://localhost,https://dcalls-2d01d.web.app,https://dcalls.com,https://www.dcalls.com"
+
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "dcalls-uploads"
+
+# Secrets are configured with:
+# wrangler secret put VONAGE_API_KEY
+# wrangler secret put VONAGE_API_SECRET
+# wrangler secret put VONAGE_BRAND
+# wrangler secret put FIREBASE_WEB_API_KEY
+# wrangler secret put FIREBASE_PROJECT_ID
+# wrangler secret put FIREBASE_SERVICE_ACCOUNT_EMAIL
+# wrangler secret put FIREBASE_SERVICE_ACCOUNT_PRIVATE_KEY
+# wrangler secret put AUTH_TRANSACTION_SECRET
+# wrangler secret put DEEPSEEK_API_KEY
+# wrangler secret put OPENROUTER_API_KEY

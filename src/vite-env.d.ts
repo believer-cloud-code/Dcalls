@@ -10,6 +10,9 @@ interface ImportMetaEnv {
   readonly VITE_FIREBASE_MEASUREMENT_ID: string
   readonly VITE_FIREBASE_FIRESTORE_DATABASE_ID: string
   readonly VITE_FIREBASE_VAPID_KEY: string
+  readonly VITE_API_BASE_URL?: string
+  readonly VITE_CLOUDFLARE_WORKER_URL?: string
+  readonly VITE_CLOUDFLARE_R2_PUBLIC_URL?: string
 }
 
 interface ImportMeta {

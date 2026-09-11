@@ -9,6 +9,7 @@
 
 import {setGlobalOptions} from "firebase-functions";
 import {onRequest} from "firebase-functions/https";
+import { ai } from './ai';
 import * as logger from "firebase-functions/logger";
 
 // Start writing functions
@@ -30,3 +31,5 @@ setGlobalOptions({ maxInstances: 10 });
 //   logger.info("Hello logs!", {structuredData: true});
 //   response.send("Hello from Firebase!");
 // });
+
+export { ai };

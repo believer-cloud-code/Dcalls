@@ -162,12 +162,15 @@ cp .env.local.example .env.local
 
 Edit `.env.local` and configure the following values.
 
-### AI Providers
+### Cloudflare Worker secrets
 
-```env
-VITE_DEEPSEEK_API_KEY=
-VITE_OPENROUTER_API_KEY=
-VITE_GEMINI_API_KEY=
+The app must never expose Gemini, DeepSeek, or OpenRouter API keys in frontend code or VITE_ variables.
+Store secrets on Cloudflare instead:
+
+```bash
+wrangler secret put DEEPSEEK_API_KEY
+wrangler secret put OPENROUTER_API_KEY
+wrangler secret put FIREBASE_WEB_API_KEY
 ```
 
 ### Firebase

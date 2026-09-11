@@ -34,6 +34,7 @@ import { DcallsIcon } from './components/DcallsIcon';
 import { lookupUidByPhone } from './services/contactService';
 import { openMarketing } from './config/urls';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { startForegroundMessageListener } from './services/notificationService';
 import { FeatureErrorBoundary } from './components/FeatureErrorBoundary';
 
 export default function App() {
@@ -131,6 +132,68 @@ export default function App() {
     };
   }, []);
 
+
+  useEffect(() => {
+    if (!user || !isRegistered) return;
+
+    let isMounted = true;
+
+    const unsubscribeNotifications = startForegroundMessageListener(
+      async (payload) => {
+        if (!isMounted) return;
+
+        try {
+          // Do not show browser notifications while Dcalls is actively visible.
+          if (document.visibilityState === 'visible') {
+            return;
+          }
+
+          if (!('Notification' in window) || Notification.permission !== 'granted') {
+            return;
+          }
+
+          const userDoc = await getDoc(doc(db, 'users', user.uid));
+          const settings = userDoc.exists()
+            ? (userDoc.data()?.settings || {})
+            : {};
+
+          // The Settings switch is the final authority.
+          if (settings.notifications === false) {
+            return;
+          }
+
+          const notification = payload.notification || {};
+          const data = payload.data || {};
+
+          const title =
+            notification.title ||
+            data.title ||
+            'Dcalls';
+
+          const body =
+            notification.body ||
+            data.body ||
+            'You have a new message.';
+
+          new Notification(title, {
+            body,
+            icon: '/logo.svg',
+            tag: data.chatId || data.messageId || 'dcalls-message'
+          });
+        } catch (error) {
+          console.warn(
+            'Foreground notification display failed (non-blocking):',
+            error
+          );
+        }
+      }
+    );
+
+    return () => {
+      isMounted = false;
+      unsubscribeNotifications();
+    };
+  }, [user, isRegistered]);
 
   useEffect(() => {
     if (!user || !isRegistered) return;
@@ -479,20 +542,49 @@ export default function App() {
         <PhoneAuthScreen
           phoneNumber={registrationData.phoneNumber}
           onSuccess={async () => {
-            if (!user) return;
+            const firebaseUser = auth.currentUser;
+
+            if (!firebaseUser) {
+              console.error(
+                "Phone verification completed, but Firebase currentUser is not available."
+              );
+              return;
+            }
+
+            const unifiedUser: UnifiedUser = {
+              uid: firebaseUser.uid,
+              email: firebaseUser.email,
+              displayName: firebaseUser.displayName,
+              photoURL: firebaseUser.photoURL,
+              phoneNumber: firebaseUser.phoneNumber,
+              provider: 'firebase',
+            };
+
             try {
-              const userRef = doc(db, 'users', user.uid);
+              const userRef = doc(db, 'users', firebaseUser.uid);
+
               await setDoc(userRef, {
-                uid: user.uid,
+                uid: firebaseUser.uid,
                 ...registrationData,
-                photoURL: user.photoURL,
+                photoURL: firebaseUser.photoURL,
                 isRegistered: true,
                 lastSeen: serverTimestamp(),
                 createdAt: serverTimestamp(),
               }, { merge: true });
+
+              setUser(unifiedUser);
               setIsRegistered(true);
+              setRegistrationData(null);
+
+              console.log(
+                "Dcalls registration completed successfully:",
+                firebaseUser.uid
+              );
             } catch (error) {
-              console.error("Failed to complete registration", error);
+              console.error(
+                "Failed to complete registration",
+                error
+              );
             }
           }}
           onBack={() => setRegistrationData(null)}
@@ -604,17 +696,32 @@ export default function App() {
                   <PhoneOff size={28} />
                 </button>
                 <button
-                  onClick={() => {
-                    console.log(`[Call] Accepting incoming call ${incomingCall.id} from ${incomingCall.callerId}`);
-                    // Set incoming to null first to prevent both modals rendering
-                    setIncomingCall(null);
-                    setActiveCall({
-                      type: incomingCall.type,
-                      contactName: incomingCall.callerName,
-                      contactPhoto: incomingCall.callerPhoto,
-                      contactId: incomingCall.callerId,
-                      incomingCallId: incomingCall.id
-                    });
+                  onClick={async () => {
+                    try {
+                      console.log(`[Call] Accepting incoming call ${incomingCall.id} from ${incomingCall.callerId}`);
+                      // Preflight media permissions as a direct user gesture so the browser allows getUserMedia later
+                      try {
+                        const constraints: MediaStreamConstraints = incomingCall.type === 'video' ? { audio: true, video: true } : { audio: true };
+                        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                        // Immediately stop tracks; this was only to acquire permission
+                        stream.getTracks().forEach(t => t.stop());
+                      } catch (permErr) {
+                        console.warn('Media permission preflight failed or was denied:', permErr);
+                        // Continue to open call UI; CallingScreen will surface errors
+                      }
+
+                      // Set incoming to null first to prevent both modals rendering
+                      setIncomingCall(null);
+                      setActiveCall({
+                        type: incomingCall.type,
+                        contactName: incomingCall.callerName,
+                        contactPhoto: incomingCall.callerPhoto,
+                        contactId: incomingCall.callerId,
+                        incomingCallId: incomingCall.id
+                      });
+                    } catch (err) {
+                      console.error('Accept click failed:', err);
+                    }
                   }}
                   className="w-16 h-16 bg-emerald-500 rounded-full flex items-center justify-center text-white shadow-xl shadow-emerald-500/20 active:scale-90 transition-all"
                 >

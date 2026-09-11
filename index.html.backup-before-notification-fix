@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <title>DCalls — Connect, Communicate and Call</title>
+
+  <meta
+    name="description"
+    content="DCalls is a modern communication platform for connecting with people, messaging, and making calls."
+  />
+
+  <meta
+    name="keywords"
+    content="DCalls, Dcalls, Damai, communication, messaging, calling, video calls, voice calls, chat"
+  />
+
+  <meta name="author" content="DCalls" />
+
+  <meta name="robots" content="index, follow" />
+
+  <link rel="canonical" href="https://dcalls-2d01d.web.app/" />
+
+  <link rel="icon" href="/dcalls.ico" type="image/x-icon" />
+  <link rel="shortcut icon" href="/dcalls.ico" type="image/x-icon" />
+  <link rel="apple-touch-icon" href="/dcalls.ico" />
+
+  <link rel="manifest" href="/manifest.json" />
+
+  <meta name="theme-color" content="#4f46e5" />
+
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta
+    name="apple-mobile-web-app-status-bar-style"
+    content="black-translucent"
+  />
+  <meta name="apple-mobile-web-app-title" content="DCalls" />
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="DCalls — Connect, Communicate and Call" />
+  <meta
+    property="og:description"
+    content="DCalls is a modern communication platform for connecting with people, messaging, and making calls."
+  />
+  <meta property="og:url" content="https://dcalls-2d01d.web.app/" />
+  <meta property="og:site_name" content="DCalls" />
+
+  <!-- Twitter / social sharing -->
+  <meta name="twitter:card" content="summary" />
+  <meta
+    name="twitter:title"
+    content="DCalls — Connect, Communicate and Call"
+  />
+  <meta
+    name="twitter:description"
+    content="Connect, communicate and call with DCalls."
+  />
+</head>
+
+<body>
+  <div id="root"></div>
+
+  <script type="module" src="/src/main.tsx"></script>
+
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js')
+          .then(registration => {
+            console.log('SW registered:', registration);
+          })
+          .catch(error => {
+            console.log('SW registration failed:', error);
+          });
+      });
+    }
+  </script>
+</body>
+</html>

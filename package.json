@@ -1,5 +1,5 @@
 {
-  "name": "react-example",
+  "name": "dcalls",
   "private": true,
   "version": "1.0.0",
   "type": "module",
@@ -14,13 +14,18 @@
     "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:3000 && electron .\"",
     "electron:build": "npm run build && electron-builder",
     "build:electron": "electron-builder",
+    "prepare:capacitor": "npm run build && npx cap sync",
+    "build:android": "npm run prepare:capacitor && cd android && ./gradlew assembleRelease",
+    "prepare:ios": "npm run build && npx cap sync ios",
+    "build:ios": "npm run prepare:ios && echo \"Open ios/App.xcworkspace in Xcode and build for release (macOS required)\" && exit 0",
+    "build:desktop": "npm run build && npm run build:electron",
     "cap:sync": "npm run build && npx cap sync",
     "cap:open:android": "npx cap open android",
     "android:build": "npm run build && npx cap sync && npx cap open android"
   },
   "build": {
-    "appId": "com.app.communication",
-    "productName": "CommunicationApp",
+    "appId": "com.dcalls.app",
+    "productName": "Dcalls",
     "directories": {
       "output": "dist-electron"
     },
@@ -62,6 +67,7 @@
     "tailwind-merge": "^3.5.0"
   },
   "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
     "@react-native-community/cli": "v20.1.3",
     "@react-native/metro-config": "^0.76.0",
     "@tailwindcss/vite": "^4.3.0",

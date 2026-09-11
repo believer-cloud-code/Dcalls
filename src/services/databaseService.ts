@@ -1,9 +1,5 @@
-import { db as firebaseDb, storage } from '../firebase';
-import {
-  ref,
-  uploadBytes,
-  getDownloadURL
-} from 'firebase/storage';
+import { db as firebaseDb } from '../firebase';
+import { callWorkerJson, getWorkerBaseUrl } from './cloudflareApi';
 import {
   collection,
   addDoc,
@@ -96,12 +92,32 @@ class DatabaseService {
   }
 
   async uploadFile(path: string, file: File | Blob) {
+    const workerUrl = getWorkerBaseUrl();
+    if (workerUrl) {
+      const formData = new FormData();
+      formData.append('path', path);
+      formData.append('file', file);
+
+      const data = await callWorkerJson('/upload', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const uploadedUrl = data?.url || data?.fileUrl || data?.downloadURL || '';
+      if (!uploadedUrl) {
+        throw new Error('Cloudflare Worker upload did not return a public URL.');
+      }
+      return uploadedUrl;
+    }
+
     try {
+      const { storage } = await import('../firebase');
+      const { ref, uploadBytes, getDownloadURL } = await import('firebase/storage');
       const storageRef = ref(storage, path);
       await uploadBytes(storageRef, file);
       return await getDownloadURL(storageRef);
     } catch (e) {
-      console.error('Firebase Storage error:', e);
+      console.error('Legacy Firebase Storage fallback error:', e);
       throw e;
     }
   }

@@ -7,23 +7,13 @@ import { twMerge } from 'tailwind-merge';
 import { collection, addDoc, serverTimestamp, query, orderBy, limit, onSnapshot, doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 import { CryptoService } from '../services/cryptoService';
+import { DCALLS_LANGUAGES } from '../config/languages';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-const LANGUAGES = [
-  { code: 'en', name: 'English', flag: '🇺🇸' },
-  { code: 'es', name: 'Spanish', flag: '🇪🇸' },
-  { code: 'fr', name: 'French', flag: '🇫🇷' },
-  { code: 'de', name: 'German', flag: '🇩🇪' },
-  { code: 'zh', name: 'Chinese', flag: '🇨🇳' },
-  { code: 'ja', name: 'Japanese', flag: '🇯🇵' },
-  { code: 'ko', name: 'Korean', flag: '🇰🇷' },
-  { code: 'ar', name: 'Arabic', flag: '🇸🇦' },
-  { code: 'pt', name: 'Portuguese', flag: '🇵🇹' },
-  { code: 'ru', name: 'Russian', flag: '🇷🇺' },
-];
+const LANGUAGES = DCALLS_LANGUAGES;
 
 enum OperationType {
   CREATE = 'create',
@@ -121,6 +111,9 @@ export const CallingScreen: React.FC<CallingScreenProps> = ({ onEnd, type, conta
       const updateVideoStatus = () => {
         const hasVideo = remoteStream.getVideoTracks().some(track => track.enabled && track.readyState === 'live');
         setIsRemoteVideoActive(hasVideo);
+        if (remoteStream.getTracks().some(track => track.readyState === 'live')) {
+          setCallStatus('connected');
+        }
       };
 
       updateVideoStatus();
@@ -146,10 +139,16 @@ export const CallingScreen: React.FC<CallingScreenProps> = ({ onEnd, type, conta
     if (remoteStream) {
       if (remoteVideoRef.current && !isVideoOff) {
         remoteVideoRef.current.srcObject = remoteStream;
+        void remoteVideoRef.current.play().catch((error) => {
+          console.warn('[CallingScreen] Remote video autoplay was blocked:', error);
+        });
       }
+
       if (remoteAudioRef.current) {
         remoteAudioRef.current.srcObject = remoteStream;
-        void remoteAudioRef.current.play().catch(() => { });
+        void remoteAudioRef.current.play().catch((error) => {
+          console.warn('[CallingScreen] Remote audio autoplay was blocked:', error);
+        });
       }
     }
   }, [isVideoOff, localStream, remoteStream]);

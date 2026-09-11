@@ -2,19 +2,22 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Send, User, Bot, Search, Trash2, MessageSquare, History, ThumbsUp, ThumbsDown, Globe, Mic, MicOff, X, Settings, Languages, Plus, Volume2, VolumeX, List, AlertTriangle, Paperclip, Image, File, Brain, Loader2 } from 'lucide-react';
 import { DcallsIcon } from './DcallsIcon';
-import { GoogleGenAI, Modality, ThinkingLevel } from "@google/genai";
+import { getDamaiResponse, getFastSummary, getTTS } from '../services/gemini';
+import { getWorkerBaseUrl } from '../services/cloudflareApi';
+import { ErrorBanner } from './ErrorBanner';
 import { FeedbackModal } from './FeedbackModal';
 import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, getDocs, limit, where, writeBatch, doc, updateDoc } from 'firebase/firestore';
+import { databaseService } from '../services/databaseService';
 import { db, auth } from '../firebase';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { LANGUAGE_NAMES } from '../config/languages';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
-const ai = GEMINI_API_KEY ? new GoogleGenAI({ apiKey: GEMINI_API_KEY }) : null;
+const API_BASE = getWorkerBaseUrl();
 
 interface Message {
   id: string;
@@ -51,6 +54,7 @@ export const DamaiChat: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
   const [feedbackMessageId, setFeedbackMessageId] = useState<string | null>(null);
   const [initialFeedbackRating, setInitialFeedbackRating] = useState(0);
+  const [aiError, setAiError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<any>(null);
@@ -64,9 +68,7 @@ export const DamaiChat: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     try { return new Date(ts); } catch { return new Date(); }
   };
 
-  const LANGUAGES = [
-    'English', 'Spanish', 'French', 'German', 'Chinese', 'Japanese', 'Korean', 'Portuguese', 'Russian', 'Italian'
-  ];
+  const LANGUAGES = LANGUAGE_NAMES;
 
   // Fetch User Settings
   useEffect(() => {
@@ -112,27 +114,15 @@ export const DamaiChat: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   };
 
   const speakText = async (text: string) => {
-    if (!isVoiceOutputEnabled || !ai) return;
+    if (!isVoiceOutputEnabled) return;
     try {
-      const response = await ai.models.generateContent({
-        model: "gemini-2.0-flash",
-        contents: [{ parts: [{ text }] }],
-        config: {
-          responseModalities: [Modality.AUDIO],
-          speechConfig: {
-            voiceConfig: {
-              prebuiltVoiceConfig: { voiceName: 'Aoede' },
-            },
-          },
-        },
-      });
-      const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-      if (base64Audio) {
-        const audio = new Audio(`data:audio/mp3;base64,${base64Audio}`);
+      const base64 = await getTTS(text);
+      if (base64) {
+        const audio = new Audio(`data:audio/mp3;base64,${base64}`);
         audio.play();
       }
     } catch (error) {
-      console.error("TTS failed", error);
+      console.error('TTS failed', error);
     }
   };
 
@@ -206,7 +196,8 @@ export const DamaiChat: React.FC<{ onClose: () => void }> = ({ onClose }) => {
             // pass the last server messages for context
             await generateSuggestions(serverMsgs.slice(-6));
           } catch (e) {
-            console.error('Suggestion generation failed:', e);
+              console.error('Suggestion generation failed:', e);
+              setAiError(e?.message ? String(e.message) : String(e));
           }
         })();
       }
@@ -281,18 +272,10 @@ export const DamaiChat: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   };
 
   const generateSuggestions = async (recentMessages: Message[]) => {
-    if (!ai || recentMessages.length === 0) return;
+    if (!API_BASE || recentMessages.length === 0) return;
     try {
       const chatContext = recentMessages.map(m => `${m.sender}: ${m.text}`).join('\n');
-      const response = await ai.models.generateContent({
-        model: "gemini-1.5-flash",
-        contents: `Based on this conversation history:\n${chatContext}\n\nSuggest 3 short, natural, and helpful quick replies the user might want to send next. Return only a JSON array of strings.`,
-        config: {
-          responseMimeType: "application/json",
-        }
-      });
-
-      const raw = response.text?.trim();
+      const raw = await getDamaiResponse(`Based on this conversation history:\n${chatContext}\n\nSuggest 3 short, natural, and helpful quick replies the user might want to send next. Return only a JSON array of strings.`);
       if (!raw) {
         setSuggestions([]);
         return;
@@ -336,7 +319,7 @@ export const DamaiChat: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   };
 
   const handleSend = async () => {
-    if ((!input.trim() && attachedFiles.length === 0) || isLoading || !auth.currentUser || !ai) return;
+    if ((!input.trim() && attachedFiles.length === 0) || isLoading || !auth.currentUser || !API_BASE) return;
 
     const userText = input.trim();
     const currentFiles = [...attachedFiles];
@@ -390,61 +373,38 @@ export const DamaiChat: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 
       const parts: any[] = [];
       if (userText) parts.push({ text: userText });
-      currentFiles.forEach(file => {
-        parts.push({
-          inlineData: {
-            mimeType: file.type,
-            data: file.data
-          }
-        });
-      });
+      // Upload attached files and include URLs in prompt context
+      const fileUrls: string[] = [];
+      for (const file of currentFiles) {
+        try {
+          const path = `damai_files/${Date.now()}_${file.name}`;
+          const blob = new Blob([Uint8Array.from(atob(file.data), c => c.charCodeAt(0))]);
+          const url = await databaseService.uploadFile(path, blob as Blob);
+          fileUrls.push(`${file.name} (${file.type}): ${url}`);
+        } catch (e) {
+          console.error('Failed to upload attachment for AI context:', e);
+        }
+      }
 
       let serverAiSaved = false;
       let aiText = '';
       let sources: any[] = [];
       try {
-        const response = await ai.models.generateContent({
-          model: modelName,
-          contents: [{ parts }],
-          config: {
-            systemInstruction: `You are Damai, a highly personalized AI assistant with long-term memory. 
-          You learn from user feedback and web searches.
-          
-          User Memory Context:
-          ${memoryContext}
-          
-          Translation Preferences:
-          - User Input Language: ${translationPrefs.inputLang}
-          - AI Output Language: ${translationPrefs.outputLang}
-          
-          Guidelines:
-          - Be context-aware. If the user mentions something you should remember, acknowledge it.
-          - Use Google Search for facts, current events, or when you need more info.
-          - If the user corrects you, update your internal understanding.
-          - Maintain a helpful, friendly, and professional tone.
-          - IMPORTANT: Respond in ${translationPrefs.outputLang} as per the user's preference.`,
-            tools: [{ googleSearch: {} }],
-            thinkingConfig: isThinkingMode ? { thinkingLevel: ThinkingLevel.HIGH } : undefined
-          }
-        });
+        const prompt = `System: You are Damai, a highly personalized AI assistant with long-term memory.\nUser Memory Context:\n${memoryContext}\nTranslation Preferences: Input ${translationPrefs.inputLang}, Output ${translationPrefs.outputLang}\nFiles: ${fileUrls.join('; ')}\nUser: ${userText}`;
 
-        aiText = response.text || "I'm sorry, I couldn't process that.";
-        sources = response.candidates?.[0]?.groundingMetadata?.groundingChunks?.map(chunk => ({
-          title: chunk.web?.title || "Source",
-          uri: chunk.web?.uri || ""
-        })) || [];
+        const responseText = await getDamaiResponse(prompt, memoryContext);
+        aiText = responseText || "I'm sorry, I couldn't process that.";
 
         // 4. Save AI response to Firestore (this will trigger the canonical onSnapshot listener)
         await addDoc(collection(db, 'users', auth.currentUser.uid, 'damai_chats', chatId, 'messages'), {
           text: aiText,
           sender: 'ai',
           timestamp: serverTimestamp(),
-          sources,
           thinkingMode: isThinkingMode
         });
 
-        // Speak AI response
-        speakText(aiText);
+        // Speak AI response (server TTS may or may not be available)
+        try { await speakText(aiText); } catch (e) { /* non-blocking */ }
 
         // Update chat thread last message
         await updateDoc(doc(db, 'users', auth.currentUser.uid, 'damai_chats', chatId), {
@@ -453,12 +413,12 @@ export const DamaiChat: React.FC<{ onClose: () => void }> = ({ onClose }) => {
         });
 
         serverAiSaved = true;
-      } catch (error) {
+          } catch (error: any) {
         console.error("Damai AI Error:", error);
+        setAiError(error?.message ? String(error.message) : String(error));
         // Mark the optimistic message as failed so the user can retry
         setMessages(prev => prev.map(m => m.id === tempAiId ? { ...m, text: "[Damai failed to respond]", isThinking: false } : m));
       } finally {
-        // Remove the optimistic placeholder if the server saved a canonical message (the snapshot listener will add the server message)
         if (serverAiSaved) {
           setMessages(prev => prev.filter(m => m.id !== tempAiId));
         }
@@ -466,14 +426,11 @@ export const DamaiChat: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 
       // Update title if it's still "New Conversation" or generic
       const currentThread = chatThreads.find(t => t.id === chatId);
-      if (currentThread && (currentThread.title === 'New Conversation' || currentThread.title.startsWith(userText.slice(0, 10))) && ai) {
-        const titleResponse = await ai.models.generateContent({
-          model: "gemini-1.5-flash",
-          contents: `Generate a very short (max 4 words) title for a chat that starts with: "${userText}"`,
-        });
-        if (titleResponse.text) {
+      if (currentThread && (currentThread.title === 'New Conversation' || currentThread.title.startsWith(userText.slice(0, 10))) && API_BASE) {
+        const titleText = await getDamaiResponse(`Generate a very short (max 4 words) title for a chat that starts with: "${userText}"`);
+        if (titleText) {
           await updateDoc(doc(db, 'users', auth.currentUser.uid, 'damai_chats', chatId), {
-            title: titleResponse.text.trim().replace(/"/g, '')
+            title: titleText.trim().replace(/"/g, '')
           });
         }
       }
@@ -501,8 +458,9 @@ export const DamaiChat: React.FC<{ onClose: () => void }> = ({ onClose }) => {
         );
       }
 
-    } catch (error) {
+    } catch (error: any) {
       console.error("Damai AI Error:", error);
+      setAiError(error?.message ? String(error.message) : String(error));
     } finally {
       setIsLoading(false);
     }
@@ -549,6 +507,7 @@ export const DamaiChat: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 
   return (
     <div className="fixed inset-0 bg-[#0a0a0a] z-40 flex overflow-hidden">
+      <ErrorBanner message={aiError} onClose={() => setAiError(null)} />
       {/* Sidebar */}
       <AnimatePresence>
         {/* Hover region to reveal sidebar on desktop */}

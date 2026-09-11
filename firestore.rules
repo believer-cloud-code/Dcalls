@@ -10,9 +10,8 @@ service cloud.firestore {
     }
 
     function isValidUser(data) {
-      return (data.email is string || !('email' in data)) &&
-             (data.displayName is string || !('displayName' in data)) &&
-             (data.fcmTokens is list || !('fcmTokens' in data));
+          return (data.email is string || !('email' in data)) &&
+            (data.displayName is string || !('displayName' in data));
     }
 
     function isValidMessage(data) {
@@ -63,6 +62,17 @@ service cloud.firestore {
         allow create, update: if isOwner(userId) && isValidMessage(request.resource.data);
       }
 
+      match /damai_chats/{chatId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId);
+        allow update, delete: if isOwner(userId);
+
+        match /messages/{messageId} {
+          allow read: if isOwner(userId);
+          allow create, update, delete: if isOwner(userId);
+        }
+      }
+
       match /calls/{callId} {
         allow read: if isOwner(userId);
         allow create, update: if isOwner(userId);
@@ -88,21 +98,77 @@ service cloud.firestore {
         allow create, update: if isOwner(userId) && isValidContact(request.resource.data);
         allow delete: if isOwner(userId);
       }
+
+      // Private messaging tokens and other sensitive data
+      match /privateMessaging/{tokenId} {
+        allow read, write: if isOwner(userId);
+      }
     }
 
     match /calls/{callId} {
-      allow read: if isAuthenticated() && isCallParticipant();
-      allow create: if isAuthenticated() && isCallParticipantOnCreate();
-      allow update: if isAuthenticated() && isCallParticipant();
+      allow read: if isAuthenticated() &&
+        (
+          request.auth.uid == resource.data.callerId ||
+          request.auth.uid == resource.data.receiverId
+        );
+
+      allow create: if isAuthenticated() &&
+        (
+          request.auth.uid == request.resource.data.callerId ||
+          request.auth.uid == request.resource.data.receiverId
+        );
+
+      allow update: if isAuthenticated() &&
+        (
+          request.auth.uid == resource.data.callerId ||
+          request.auth.uid == resource.data.receiverId
+        );
 
       match /offer/{docId} {
-        allow read, write: if isAuthenticated();
+        allow read, write: if isAuthenticated() &&
+          (
+            request.auth.uid ==
+              get(/databases/$(database)/documents/calls/$(callId)).data.callerId ||
+            request.auth.uid ==
+              get(/databases/$(database)/documents/calls/$(callId)).data.receiverId
+          );
       }
+
       match /answer/{docId} {
-        allow read, write: if isAuthenticated();
+        allow read, write: if isAuthenticated() &&
+          (
+            request.auth.uid ==
+              get(/databases/$(database)/documents/calls/$(callId)).data.callerId ||
+            request.auth.uid ==
+              get(/databases/$(database)/documents/calls/$(callId)).data.receiverId
+          );
       }
+
       match /candidates/{candidateId} {
-        allow read, write: if isAuthenticated();
+        allow read: if isAuthenticated() &&
+          (
+            request.auth.uid ==
+              get(/databases/$(database)/documents/calls/$(callId)).data.callerId ||
+            request.auth.uid ==
+              get(/databases/$(database)/documents/calls/$(callId)).data.receiverId
+          );
+
+        allow create: if isAuthenticated() &&
+          (
+            request.auth.uid ==
+              get(/databases/$(database)/documents/calls/$(callId)).data.callerId ||
+            request.auth.uid ==
+              get(/databases/$(database)/documents/calls/$(callId)).data.receiverId
+          ) &&
+          request.resource.data.senderId == request.auth.uid;
+
+        allow update, delete: if isAuthenticated() &&
+          (
+            request.auth.uid ==
+              get(/databases/$(database)/documents/calls/$(callId)).data.callerId ||
+            request.auth.uid ==
+              get(/databases/$(database)/documents/calls/$(callId)).data.receiverId
+          );
       }
     }
 

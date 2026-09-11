@@ -1,241 +1,58 @@
-import { GoogleGenAI } from "@google/genai";
+import { callWorkerJson, getWorkerBaseUrl } from './cloudflareApi';
 
-const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
-const OPENROUTER_API_KEY = import.meta.env.VITE_OPENROUTER_API_KEY;
-const DEEPSEEK_API_KEY = import.meta.env.VITE_DEEPSEEK_API_KEY;
+const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+const WORKER_BASE = getWorkerBaseUrl();
 
-const ai = GEMINI_API_KEY ? new GoogleGenAI({ apiKey: GEMINI_API_KEY }) : null;
+if (!WORKER_BASE && !API_BASE) {
+  console.warn('Cloudflare Worker and legacy backend are not configured. AI features will be disabled until VITE_CLOUDFLARE_WORKER_URL or VITE_API_BASE_URL is set.');
+}
 
-const systemPrompt = "You are Damai, a friendly and efficient AI assistant integrated into Dcalls, a messaging app. You help users with translations, summaries, and general questions. Keep your responses concise and helpful. ALWAYS format your responses using Markdown for maximum readability.";
+async function callAiBackend(action: string, body: Record<string, unknown>) {
+  const workerBase = getWorkerBaseUrl();
+  const endpoint = workerBase ? `${workerBase}/ai` : `${API_BASE}/ai`;
 
-export const getDamaiResponse = async (prompt: string, context?: string) => {
-  // Try DeepSeek first if API key is available
-  if (DEEPSEEK_API_KEY) {
-    try {
-      const response = await fetch("https://api.deepseek.com/chat/completions", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${DEEPSEEK_API_KEY}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          "model": "deepseek-chat",
-          "messages": [
-            {
-              "role": "system",
-              "content": systemPrompt
-            },
-            {
-              "role": "user",
-              "content": `Context: ${context || 'No specific context provided.'}\nUser says: ${prompt}`
-            }
-          ],
-          "temperature": 0.7,
-          "max_tokens": 1000
-        })
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        return data.choices[0].message.content;
-      }
-    } catch (error) {
-      console.error("DeepSeek call failed, trying OpenRouter", error);
-    }
+  if (!workerBase && !API_BASE) {
+    throw new Error('AI backend not configured: set VITE_CLOUDFLARE_WORKER_URL or VITE_API_BASE_URL');
   }
 
-  // Try OpenRouter as fallback
-  if (OPENROUTER_API_KEY) {
-    try {
-      const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
-          "HTTP-Referer": window.location.origin,
-          "X-Title": "Dcalls",
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          "model": "google/gemini-pro-1.5",
-          "messages": [
-            {
-              "role": "system",
-              "content": systemPrompt
-            },
-            {
-              "role": "user",
-              "content": `Context: ${context || 'No specific context provided.'}\nUser says: ${prompt}`
-            }
-          ]
-        })
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        return data.choices[0].message.content;
-      }
-    } catch (error) {
-      console.error("OpenRouter call failed, falling back to Gemini SDK", error);
-    }
+  if (workerBase) {
+    return callWorkerJson('/ai', {
+      method: 'POST',
+      body: JSON.stringify({ action, ...body }),
+    });
   }
 
-  // Fallback to Gemini SDK
-  if (!ai) {
-    throw new Error('No AI provider available. Please configure at least one API key (DeepSeek, OpenRouter, or Gemini)');
-  }
-
-  const response = await ai.models.generateContent({
-    model: "gemini-1.5-flash",
-    contents: [
-      {
-        role: "user",
-        parts: [{
-          text: `You are Damai, a helpful AI assistant integrated into Dcalls, a messaging app. 
-        Context: ${context || 'No specific context provided.'}
-        User says: ${prompt}`
-        }]
-      }
-    ],
-    config: {
-      systemInstruction: "You are Damai, a friendly and efficient AI assistant. You help users with translations, summaries, and general questions. Keep your responses concise and helpful. ALWAYS format your responses using Markdown for maximum readability."
-    }
+  const res = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action, ...body }),
+    credentials: 'include'
   });
 
-  return response.text;
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`AI backend error: ${res.status} ${text}`);
+  }
+
+  return res.json();
+}
+
+export const getDamaiResponse = async (prompt: string, context?: string) => {
+  const data = await callAiBackend('chat', { prompt, context });
+  return data?.response || null;
 };
 
 export const getFastSummary = async (text: string) => {
-  const summaryPrompt = `Summarize the following conversation into a structured format with bullet points. 
-              Highlight the main topics discussed and any action items agreed upon.
-              
-              Format:
-              ### Main Topics
-              - Topic 1
-              - Topic 2
-              
-              ### Action Items
-              - Action 1
-              - Action 2
-              
-              Conversation: ${text}`;
-
-  // Try DeepSeek first if API key is available
-  if (DEEPSEEK_API_KEY) {
-    try {
-      const response = await fetch("https://api.deepseek.com/chat/completions", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${DEEPSEEK_API_KEY}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          "model": "deepseek-chat",
-          "messages": [
-            {
-              "role": "system",
-              "content": "You are an expert summarizer. Provide a structured summary with main topics and action items."
-            },
-            {
-              "role": "user",
-              "content": summaryPrompt
-            }
-          ],
-          "temperature": 0.7,
-          "max_tokens": 1500
-        })
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        return data.choices[0].message.content;
-      }
-    } catch (error) {
-      console.error("DeepSeek summary call failed, trying OpenRouter", error);
-    }
-  }
-
-  // Try OpenRouter as fallback
-  if (OPENROUTER_API_KEY) {
-    try {
-      const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
-          "HTTP-Referer": window.location.origin,
-          "X-Title": "Dcalls",
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          "model": "google/gemini-2.0-flash-001",
-          "messages": [
-            {
-              "role": "system",
-              "content": "You are an expert summarizer. Provide a structured summary with main topics and action items."
-            },
-            {
-              "role": "user",
-              "content": summaryPrompt
-            }
-          ]
-        })
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        return data.choices[0].message.content;
-      }
-    } catch (error) {
-      console.error("OpenRouter summary call failed, falling back to Gemini SDK", error);
-    }
-  }
-
-  if (!ai) {
-    return null;
-  }
-
-  const response = await ai.models.generateContent({
-    model: "gemini-1.5-flash",
-    contents: [
-      {
-        role: "user",
-        parts: [{
-          text: `Summarize the following conversation into a structured format with bullet points. 
-        Highlight the main topics discussed and any action items agreed upon.
-        
-        Format:
-        ### Main Topics
-        - Topic 1
-        - Topic 2
-        
-        ### Action Items
-        - Action 1
-        - Action 2
-        
-        Conversation: ${text}`
-        }]
-      }
-    ]
-  });
-
-  return response.text;
+  const data = await callAiBackend('summary', { text });
+  return data?.summary || null;
 };
 
 export const transcribeAudio = async (base64Audio: string) => {
-  if (!ai) {
-    throw new Error('No AI provider available. Please configure at least one API key (DeepSeek, OpenRouter, or Gemini)');
-  }
+  const data = await callAiBackend('transcribe', { audio: base64Audio });
+  return data?.transcript || null;
+};
 
-  const response = await ai.models.generateContent({
-    model: "gemini-1.5-flash",
-    contents: [
-      {
-        parts: [
-          { inlineData: { mimeType: "audio/wav", data: base64Audio } },
-          { text: "Transcribe this audio accurately." }
-        ]
-      }
-    ]
-  });
-
-  return response.text;
+export const getTTS = async (text: string, voice = 'Aoede') => {
+  const data = await callAiBackend('tts', { text, voice });
+  return data?.audioBase64 || null;
 };

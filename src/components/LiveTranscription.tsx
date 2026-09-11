@@ -2,7 +2,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Mic, MicOff, Volume2, VolumeX, Trash2, Share2, Copy } from 'lucide-react';
 import { DcallsIcon } from './DcallsIcon';
-import { GoogleGenAI, Modality, LiveServerMessage } from "@google/genai";
+import { transcribeAudio } from '../services/gemini';
+import { getWorkerBaseUrl } from '../services/cloudflareApi';
+import { ErrorBanner } from './ErrorBanner';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { clsx, type ClassValue } from 'clsx';
@@ -17,92 +19,58 @@ export const LiveTranscription: React.FC = () => {
   const [transcription, setTranscription] = useState<{ text: string, isAi: boolean }[]>([]);
   const [currentText, setCurrentText] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [aiError, setAiError] = useState<string | null>(null);
   
-  const audioContextRef = useRef<AudioContext | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const processorRef = useRef<ScriptProcessorNode | null>(null);
   const sessionRef = useRef<any>(null);
   const listeningRef = useRef<boolean>(false);
 
   const startListening = async () => {
     try {
       setError(null);
-      const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
-
-      if (!GEMINI_API_KEY) {
-        throw new Error("Missing VITE_GEMINI_API_KEY");
+      const workerBase = getWorkerBaseUrl();
+      const legacyBase = import.meta.env.VITE_API_BASE_URL;
+      if (!workerBase && !legacyBase) {
+        throw new Error('Live transcription requires a configured AI backend (VITE_CLOUDFLARE_WORKER_URL or VITE_API_BASE_URL).');
       }
 
-      const ai = new GoogleGenAI({
-        apiKey: GEMINI_API_KEY,
-      });
-      
-      const session = await ai.live.connect({
-        model: "gemini-2.0-flash",
-        config: {
-          responseModalities: [Modality.AUDIO],
-          systemInstruction: "You are a live transcription assistant. Transcribe the user's audio accurately. If you detect a question or a request for help, provide a helpful, attractive, and organized response using emojis and clear formatting. Keep the transcription fluid.",
-        },
-        callbacks: {
-          onopen: () => {
-            console.log("Live connection opened");
-            setIsListening(true);
-          },
-          onmessage: async (message: LiveServerMessage) => {
-            if (message.serverContent?.modelTurn?.parts) {
-              const text = message.serverContent.modelTurn.parts.map(p => p.text).join('');
-              if (text) {
-                setTranscription(prev => [...prev, { text, isAi: true }]);
-              }
-            }
-            
-            if (message.serverContent?.interrupted) {
-              console.log("Interrupted");
-            }
-          },
-          onerror: (err) => {
-            console.error("Live error:", err);
-            setError("Connection error. Please try again.");
-            stopListening();
-          },
-          onclose: () => {
-            console.log("Live connection closed");
-            setIsListening(false);
-          }
-        }
-      });
-
-      sessionRef.current = session;
-
-      // Setup Audio Capture
+      // Use MediaRecorder to capture short audio chunks and send to backend for transcription
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
-      
-      const audioContext = new AudioContext({ sampleRate: 16000 });
-      audioContextRef.current = audioContext;
-      
-      const source = audioContext.createMediaStreamSource(stream);
-      const processor = audioContext.createScriptProcessor(4096, 1, 1);
-      processorRef.current = processor;
 
-      processor.onaudioprocess = (e) => {
-        if (!listeningRef.current) return;
-        
-        const inputData = e.inputBuffer.getChannelData(0);
-        // Convert Float32 to Int16 PCM
-        const pcmData = new Int16Array(inputData.length);
-        for (let i = 0; i < inputData.length; i++) {
-          pcmData[i] = Math.max(-1, Math.min(1, inputData[i])) * 0x7FFF;
+      const mediaRecorder = new MediaRecorder(stream);
+      sessionRef.current = mediaRecorder;
+
+      mediaRecorder.ondataavailable = async (ev) => {
+        if (!ev.data || ev.data.size === 0) return;
+        try {
+          const reader = new FileReader();
+          reader.onloadend = async () => {
+            const base64 = (reader.result as string).split(',')[1];
+            try {
+              const transcript = await transcribeAudio(base64);
+              if (transcript) {
+                setTranscription((prev) => [...prev, { text: transcript, isAi: true }]);
+              }
+            } catch (e: any) {
+              console.error('Transcription chunk failed:', e);
+              setAiError(e?.message ? String(e.message) : String(e));
+            }
+          };
+          reader.readAsDataURL(ev.data);
+        } catch (err) {
+          console.error('Transcription chunk failed:', err);
         }
-        
-        const base64Data = btoa(String.fromCharCode(...new Uint8Array(pcmData.buffer)));
-        session.sendRealtimeInput({
-          media: { data: base64Data, mimeType: 'audio/pcm;rate=16000' }
-        });
       };
 
-      source.connect(processor);
-      processor.connect(audioContext.destination);
+      mediaRecorder.onerror = (e) => {
+        console.error('MediaRecorder error', e);
+        setError('Microphone error');
+        stopListening();
+      };
+
+      mediaRecorder.start(3000); // send chunks every 3s
+      setIsListening(true);
 
     } catch (err: any) {
       console.error("Failed to start listening:", err);
@@ -115,26 +83,21 @@ export const LiveTranscription: React.FC = () => {
   const stopListening = () => {
     setIsListening(false);
     listeningRef.current = false;
-    
-    if (processorRef.current) {
-      processorRef.current.disconnect();
-      processorRef.current = null;
+    try {
+      const mr = sessionRef.current as MediaRecorder | null;
+      if (mr && mr.state !== 'inactive') {
+        mr.stop();
+      }
+    } catch (e) {
+      console.warn('Error stopping media recorder', e);
     }
-    
-    if (audioContextRef.current) {
-      audioContextRef.current.close();
-      audioContextRef.current = null;
-    }
-    
+
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(track => track.stop());
       streamRef.current = null;
     }
-    
-    if (sessionRef.current) {
-      sessionRef.current.close();
-      sessionRef.current = null;
-    }
+
+    sessionRef.current = null;
   };
 
   useEffect(() => {
@@ -152,6 +115,7 @@ export const LiveTranscription: React.FC = () => {
 
   return (
     <div className="flex flex-col h-full bg-[#0a0a0a] text-white p-6 space-y-6">
+      <ErrorBanner message={aiError || error} onClose={() => { setAiError(null); setError(null); }} />
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className={cn(
