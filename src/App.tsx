@@ -494,6 +494,12 @@ export default function App() {
       <RegistrationScreen
         isExistingUser
         onComplete={async (data) => {
+          if (!auth.currentUser) throw new Error('Please sign in again to complete your profile.');
+          // A legacy phone-auth session can be linked to email/password without
+          // sending another SMS, preserving its Firebase UID and existing data.
+          if (!auth.currentUser.email) {
+            await authService.linkEmailPassword(data.email, data.password || '');
+          }
           await authService.completeProfile(data);
           setIsRegistered(true);
         }}
