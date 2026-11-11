@@ -43,7 +43,8 @@ service cloud.firestore {
       allow create: if isAuthenticated() &&
         request.resource.data.uid == request.auth.uid &&
         request.resource.data.usernameLower == username &&
-        request.resource.data.username is string;
+        request.resource.data.username is string &&
+        getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.usernameLower == username;
       allow update, delete: if false;
     }
 
