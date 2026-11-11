@@ -20,7 +20,6 @@ export interface UnifiedUser {
   email: string | null;
   displayName: string | null;
   photoURL: string | null;
-  phoneNumber: string | null;
   provider: 'firebase';
 }
 
@@ -161,7 +160,6 @@ class AuthService {
       email: user.email,
       displayName: user.displayName,
       photoURL: user.photoURL,
-      phoneNumber: user.phoneNumber,
       provider: 'firebase',
     };
   }
