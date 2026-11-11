@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, RecaptchaVerifier } from 'firebase/auth';
+import { getAuth, GoogleAuthProvider } from 'firebase/auth';
 import {
   initializeFirestore,
   persistentLocalCache,
@@ -44,13 +44,5 @@ export const googleProvider = new GoogleAuthProvider();
 
 console.log('🔥 Firebase initialized for production - Spark free plan');
 
-export const setupRecaptcha = (containerId: string) => {
-  return new RecaptchaVerifier(auth, containerId, {
-    'size': 'invisible',
-    'callback': (response: any) => {
-      // reCAPTCHA solved, allow signInWithPhoneNumber.
-    }
-  });
-};
 
 export default app;
