@@ -1,16 +1,19 @@
 import {
-  signInWithCustomToken,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  sendPasswordResetEmail,
   signInWithPopup,
   signInWithRedirect,
   getRedirectResult,
   GoogleAuthProvider,
   User as FirebaseUser,
   onAuthStateChanged,
-  updateProfile,
+  updateProfile as updateFirebaseProfile,
+  deleteUser,
 } from 'firebase/auth';
-import { auth as firebaseAuth, googleProvider } from '../firebase';
+import { doc, runTransaction, serverTimestamp } from 'firebase/firestore';
+import { auth as firebaseAuth, db, googleProvider } from '../firebase';
 import { Preferences } from '@capacitor/preferences';
-import { callWorkerJson } from './cloudflareApi';
 
 export interface UnifiedUser {
   uid: string;
@@ -21,24 +24,111 @@ export interface UnifiedUser {
   provider: 'firebase';
 }
 
-export interface PhoneOtpTransaction {
-  ok: boolean;
-  transaction: string;
-  phoneNumber: string;
+export interface NewAccountData {
+  firstName: string;
+  middleName?: string;
+  lastName: string;
+  displayName: string;
+  username: string;
+  email: string;
+  password?: string;
+  about?: string;
+  photoURL?: string | null;
 }
 
-export interface PhoneOtpVerification {
-  ok: boolean;
-  customToken: string;
-  idToken: string;
-  refreshToken: string;
-  expiresIn: string;
-  uid: string;
-  phoneNumber: string;
-}
+const normalizeUsername = (value: string) =>
+  value.trim().replace(/^@/, '').toLowerCase();
 
 class AuthService {
-  constructor() {}
+  async registerWithEmail(data: NewAccountData): Promise<UnifiedUser> {
+    const credential = await createUserWithEmailAndPassword(
+      firebaseAuth,
+      data.email.trim(),
+      data.password || ''
+    );
+
+    try {
+      await this.saveProfile(credential.user, data);
+      return this.mapFirebaseUser(credential.user);
+    } catch (error) {
+      // Do not leave an authenticated account behind if its required
+      // profile/unique username could not be created.
+      try {
+        await deleteUser(credential.user);
+      } catch (cleanupError) {
+        console.error('Could not clean up incomplete account:', cleanupError);
+      }
+      throw error;
+    }
+  }
+
+  async completeProfile(data: NewAccountData): Promise<void> {
+    const currentUser = firebaseAuth.currentUser;
+    if (!currentUser) throw new Error('Please sign in again to complete your profile.');
+    await this.saveProfile(currentUser, data);
+  }
+
+  private async saveProfile(user: FirebaseUser, data: NewAccountData): Promise<void> {
+    const username = data.username.trim().replace(/^@/, '');
+    const usernameLower = normalizeUsername(username);
+
+    if (!/^[a-z0-9_]{3,20}$/.test(usernameLower)) {
+      throw new Error('Username must be 3–20 characters and use only letters, numbers or underscores.');
+    }
+
+    const usernameRef = doc(db, 'usernames', usernameLower);
+    const profileRef = doc(db, 'users', user.uid);
+
+    await runTransaction(db, async (transaction) => {
+      const usernameSnapshot = await transaction.get(usernameRef);
+      if (usernameSnapshot.exists() && usernameSnapshot.data().uid !== user.uid) {
+        throw new Error('That username is already taken. Please choose another.');
+      }
+
+      if (!usernameSnapshot.exists()) {
+        transaction.set(usernameRef, {
+          uid: user.uid,
+          username,
+          usernameLower,
+          createdAt: serverTimestamp(),
+        });
+      }
+
+      const profile = {
+        uid: user.uid,
+        firstName: data.firstName.trim(),
+        middleName: data.middleName?.trim() || '',
+        lastName: data.lastName.trim(),
+        displayName: data.displayName.trim(),
+        username,
+        usernameLower,
+        about: data.about?.trim() || '',
+        photoURL: data.photoURL ?? user.photoURL ?? null,
+        isRegistered: true,
+        emailVerified: user.emailVerified,
+        lastSeen: serverTimestamp(),
+        createdAt: serverTimestamp(),
+      };
+
+      // Email and password are deliberately not copied into the public profile.
+      transaction.set(profileRef, profile, { merge: true });
+    });
+
+    await updateFirebaseProfile(user, {
+      displayName: data.displayName.trim(),
+      photoURL: data.photoURL ?? user.photoURL ?? undefined,
+    });
+  }
+
+  async signInWithEmail(email: string, password: string): Promise<UnifiedUser> {
+    const result = await signInWithEmailAndPassword(firebaseAuth, email.trim(), password);
+    return this.mapFirebaseUser(result.user);
+  }
+
+  async sendPasswordReset(email: string): Promise<void> {
+    if (!email.trim()) throw new Error('Enter your email address first.');
+    await sendPasswordResetEmail(firebaseAuth, email.trim());
+  }
 
   async signInWithGoogle(): Promise<UnifiedUser> {
     try {
@@ -56,56 +146,8 @@ class AuthService {
         await signInWithRedirect(firebaseAuth, googleProvider);
         throw new Error('Redirecting to Google sign-in...');
       }
-
       throw err;
     }
-  }
-
-  /**
-   * Send a phone verification code through the Dcalls Cloudflare Worker.
-   *
-   * Firebase Phone Auth / reCAPTCHA is intentionally NOT used here.
-   * The Worker talks directly to Vonage Verify so the Vonage credentials
-   * never reach the browser.
-   */
-  async sendPhoneCode(phoneNumber: string): Promise<PhoneOtpTransaction> {
-    return callWorkerJson('/auth/send-otp', {
-      method: 'POST',
-      body: JSON.stringify({
-        phoneNumber,
-      }),
-    });
-  }
-
-  /**
-   * Verify the Vonage OTP through the Worker and establish a Firebase
-   * authenticated session using the Firebase custom token returned by
-   * the Worker.
-   */
-  async verifyPhoneCode(
-    code: string,
-    transaction: string
-  ): Promise<UnifiedUser> {
-    const result = await callWorkerJson('/auth/verify-otp', {
-      method: 'POST',
-      body: JSON.stringify({
-        transaction,
-        code,
-      }),
-    }) as PhoneOtpVerification;
-
-    if (!result?.customToken) {
-      throw new Error(
-        'Phone verification succeeded but Firebase authentication token was not returned.'
-      );
-    }
-
-    const credentialResult = await signInWithCustomToken(
-      firebaseAuth,
-      result.customToken
-    );
-
-    return this.mapFirebaseUser(credentialResult.user);
   }
 
   private mapFirebaseUser(user: FirebaseUser): UnifiedUser {
@@ -119,69 +161,39 @@ class AuthService {
     };
   }
 
-  async updateProfile(data: {
-    displayName?: string;
-    photoURL?: string;
-  }) {
+  async updateProfile(data: { displayName?: string; photoURL?: string }) {
     if (firebaseAuth.currentUser) {
-      await updateProfile(firebaseAuth.currentUser, data);
+      await updateFirebaseProfile(firebaseAuth.currentUser, data);
     }
   }
 
-  onAuthStateChanged(
-    callback: (user: UnifiedUser | null) => void
-  ) {
+  onAuthStateChanged(callback: (user: UnifiedUser | null) => void) {
     let lastUser: UnifiedUser | null = null;
 
     const emit = (user: UnifiedUser | null) => {
       if (JSON.stringify(user) === JSON.stringify(lastUser)) return;
-
       lastUser = user;
 
       if (user) {
-        localStorage.setItem(
-          'dcalls_user',
-          JSON.stringify(user)
-        );
-
-        Preferences.set({
-          key: 'dcalls_user',
-          value: JSON.stringify(user),
-        });
+        localStorage.setItem('dcalls_user', JSON.stringify(user));
+        void Preferences.set({ key: 'dcalls_user', value: JSON.stringify(user) });
       } else {
         localStorage.removeItem('dcalls_user');
-        Preferences.remove({
-          key: 'dcalls_user',
-        });
+        void Preferences.remove({ key: 'dcalls_user' });
       }
-
       callback(user);
     };
 
-    const unsubscribe = onAuthStateChanged(
-      firebaseAuth,
-      (user) => {
-        if (user) {
-          emit(this.mapFirebaseUser(user));
-        } else {
-          emit(null);
-        }
-      }
-    );
+    const unsubscribe = onAuthStateChanged(firebaseAuth, (user) => {
+      emit(user ? this.mapFirebaseUser(user) : null);
+    });
 
-    // Process Google redirect authentication once on startup.
     (async () => {
       try {
         const result = await getRedirectResult(firebaseAuth);
-
-        if (result?.user) {
-          emit(this.mapFirebaseUser(result.user));
-        }
+        if (result?.user) emit(this.mapFirebaseUser(result.user));
       } catch (err: any) {
-        console.warn(
-          'getRedirectResult error:',
-          err?.code || err?.message || err
-        );
+        console.warn('getRedirectResult error:', err?.code || err?.message || err);
       }
     })();
 
@@ -193,28 +205,14 @@ class AuthService {
   }
 
   async getCachedUser(): Promise<UnifiedUser | null> {
-    const { value } = await Preferences.get({
-      key: 'dcalls_user',
-    });
-
+    const { value } = await Preferences.get({ key: 'dcalls_user' });
     if (value) {
-      try {
-        return JSON.parse(value);
-      } catch {
-        // Ignore corrupt cached value and fall back to localStorage.
-      }
+      try { return JSON.parse(value); } catch { /* fall through */ }
     }
-
     const local = localStorage.getItem('dcalls_user');
-
     if (local) {
-      try {
-        return JSON.parse(local);
-      } catch {
-        return null;
-      }
+      try { return JSON.parse(local); } catch { return null; }
     }
-
     return null;
   }
 
