@@ -49,7 +49,10 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow read: if isAuthenticated();
+      allow read: if isOwner(userId) || (isAuthenticated() &&
+        !('email' in resource.data) &&
+        !('phoneNumber' in resource.data) &&
+        !('password' in resource.data));
       allow create: if isOwner(userId) && isValidUser(request.resource.data);
       allow update: if isOwner(userId) && isValidUser(request.resource.data);
 
