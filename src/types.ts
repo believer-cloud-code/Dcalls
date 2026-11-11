@@ -54,8 +54,10 @@ export interface CallRecord {
 export interface Contact {
   id: string;
   ownerId: string;
-  phoneNumber: string;
+  phoneNumber?: string;
   displayName: string;
+  customName?: string;
+  username?: string;
   uid?: string;
   photoURL?: string;
 }
