@@ -10,43 +10,43 @@ service cloud.firestore {
     }
 
     function isValidUser(data) {
-          return (data.email is string || !('email' in data)) &&
-            (data.displayName is string || !('displayName' in data));
+      return (!('email' in data)) &&
+        (!('password' in data)) &&
+        (data.displayName is string || !('displayName' in data)) &&
+        (data.username is string || !('username' in data));
     }
 
     function isValidMessage(data) {
       return data.text is string &&
-             (data.senderId is string || !('senderId' in data));
+        (data.senderId is string || !('senderId' in data));
     }
 
     function isValidRecording(data) {
-      return data.callId is string &&
-             data.summary is string;
+      return data.callId is string && data.summary is string;
     }
 
     function isValidMemory(data) {
-      return data.topic is string &&
-             data.content is string;
+      return data.topic is string && data.content is string;
     }
 
     function isValidContact(data) {
-      return data.displayName is string &&
-             data.phoneNumber is string;
+      return data.uid is string &&
+        data.customName is string &&
+        data.displayName is string;
     }
 
-    function isCallParticipant() {
-      return isAuthenticated() &&
-        (request.auth.uid == resource.data.callerId ||
-         request.auth.uid == resource.data.receiverId);
+    match /usernames/{username} {
+      // Authenticated users may resolve a username, but cannot enumerate or mutate
+      // other users' username reservations.
+      allow get: if isAuthenticated();
+      allow list: if false;
+      allow create: if isAuthenticated() &&
+        request.resource.data.uid == request.auth.uid &&
+        request.resource.data.usernameLower == username &&
+        request.resource.data.username is string;
+      allow update, delete: if false;
     }
 
-    function isCallParticipantOnCreate() {
-      return isAuthenticated() &&
-        (request.auth.uid == request.resource.data.callerId ||
-         request.auth.uid == request.resource.data.receiverId);
-    }
-
-    // Public profile fields readable by any signed-in user (calls, chat, E2EE keys)
     match /users/{userId} {
       allow read: if isAuthenticated();
       allow create: if isOwner(userId) && isValidUser(request.resource.data);
@@ -64,18 +64,15 @@ service cloud.firestore {
 
       match /damai_chats/{chatId} {
         allow read: if isOwner(userId);
-        allow create: if isOwner(userId);
-        allow update, delete: if isOwner(userId);
+        allow create, update, delete: if isOwner(userId);
 
         match /messages/{messageId} {
-          allow read: if isOwner(userId);
-          allow create, update, delete: if isOwner(userId);
+          allow read, create, update, delete: if isOwner(userId);
         }
       }
 
       match /calls/{callId} {
-        allow read: if isOwner(userId);
-        allow create, update: if isOwner(userId);
+        allow read, create, update: if isOwner(userId);
       }
 
       match /recordings/{recordingId} {
@@ -89,8 +86,7 @@ service cloud.firestore {
       }
 
       match /feedback/{feedbackId} {
-        allow read: if isOwner(userId);
-        allow create, update: if isOwner(userId);
+        allow read, create, update: if isOwner(userId);
       }
 
       match /contacts/{contactId} {
@@ -99,7 +95,6 @@ service cloud.firestore {
         allow delete: if isOwner(userId);
       }
 
-      // Private messaging tokens and other sensitive data
       match /privateMessaging/{tokenId} {
         allow read, write: if isOwner(userId);
       }
@@ -107,68 +102,36 @@ service cloud.firestore {
 
     match /calls/{callId} {
       allow read: if isAuthenticated() &&
-        (
-          request.auth.uid == resource.data.callerId ||
-          request.auth.uid == resource.data.receiverId
-        );
-
+        (request.auth.uid == resource.data.callerId ||
+         request.auth.uid == resource.data.receiverId);
       allow create: if isAuthenticated() &&
-        (
-          request.auth.uid == request.resource.data.callerId ||
-          request.auth.uid == request.resource.data.receiverId
-        );
-
+        (request.auth.uid == request.resource.data.callerId ||
+         request.auth.uid == request.resource.data.receiverId);
       allow update: if isAuthenticated() &&
-        (
-          request.auth.uid == resource.data.callerId ||
-          request.auth.uid == resource.data.receiverId
-        );
+        (request.auth.uid == resource.data.callerId ||
+         request.auth.uid == resource.data.receiverId);
 
       match /offer/{docId} {
         allow read, write: if isAuthenticated() &&
-          (
-            request.auth.uid ==
-              get(/databases/$(database)/documents/calls/$(callId)).data.callerId ||
-            request.auth.uid ==
-              get(/databases/$(database)/documents/calls/$(callId)).data.receiverId
-          );
+          (request.auth.uid == get(/databases/$(database)/documents/calls/$(callId)).data.callerId ||
+           request.auth.uid == get(/databases/$(database)/documents/calls/$(callId)).data.receiverId);
       }
-
       match /answer/{docId} {
         allow read, write: if isAuthenticated() &&
-          (
-            request.auth.uid ==
-              get(/databases/$(database)/documents/calls/$(callId)).data.callerId ||
-            request.auth.uid ==
-              get(/databases/$(database)/documents/calls/$(callId)).data.receiverId
-          );
+          (request.auth.uid == get(/databases/$(database)/documents/calls/$(callId)).data.callerId ||
+           request.auth.uid == get(/databases/$(database)/documents/calls/$(callId)).data.receiverId);
       }
-
       match /candidates/{candidateId} {
         allow read: if isAuthenticated() &&
-          (
-            request.auth.uid ==
-              get(/databases/$(database)/documents/calls/$(callId)).data.callerId ||
-            request.auth.uid ==
-              get(/databases/$(database)/documents/calls/$(callId)).data.receiverId
-          );
-
+          (request.auth.uid == get(/databases/$(database)/documents/calls/$(callId)).data.callerId ||
+           request.auth.uid == get(/databases/$(database)/documents/calls/$(callId)).data.receiverId);
         allow create: if isAuthenticated() &&
-          (
-            request.auth.uid ==
-              get(/databases/$(database)/documents/calls/$(callId)).data.callerId ||
-            request.auth.uid ==
-              get(/databases/$(database)/documents/calls/$(callId)).data.receiverId
-          ) &&
+          (request.auth.uid == get(/databases/$(database)/documents/calls/$(callId)).data.callerId ||
+           request.auth.uid == get(/databases/$(database)/documents/calls/$(callId)).data.receiverId) &&
           request.resource.data.senderId == request.auth.uid;
-
         allow update, delete: if isAuthenticated() &&
-          (
-            request.auth.uid ==
-              get(/databases/$(database)/documents/calls/$(callId)).data.callerId ||
-            request.auth.uid ==
-              get(/databases/$(database)/documents/calls/$(callId)).data.receiverId
-          );
+          (request.auth.uid == get(/databases/$(database)/documents/calls/$(callId)).data.callerId ||
+           request.auth.uid == get(/databases/$(database)/documents/calls/$(callId)).data.receiverId);
       }
     }
 
@@ -178,11 +141,12 @@ service cloud.firestore {
       allow update: if isAuthenticated() && request.auth.uid in resource.data.participants;
 
       match /messages/{messageId} {
-        allow read: if isAuthenticated();
+        allow read: if isAuthenticated() && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
         allow create: if isAuthenticated() &&
-          (request.auth.uid == request.resource.data.senderId ||
-           request.resource.data.senderId == 'ai');
-        allow update: if isAuthenticated();
+          request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants &&
+          (request.auth.uid == request.resource.data.senderId || request.resource.data.senderId == 'ai');
+        allow update: if isAuthenticated() &&
+          request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
       }
     }
 
