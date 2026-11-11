@@ -27,6 +27,7 @@ export const RegistrationScreen: React.FC<RegistrationScreenProps> = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  const needsEmailPassword = !auth.currentUser?.email;
   const displayName = [firstName.trim(), middleName.trim(), lastName.trim()]
     .filter(Boolean)
     .join(' ');
@@ -39,11 +40,11 @@ export const RegistrationScreen: React.FC<RegistrationScreenProps> = ({
       setError('Please complete all required fields.');
       return;
     }
-    if (!isExistingUser && password.length < 6) {
+    if (needsEmailPassword && password.length < 6) {
       setError('Your password must contain at least 6 characters.');
       return;
     }
-    if (!isExistingUser && password !== confirmPassword) {
+    if (needsEmailPassword && password !== confirmPassword) {
       setError('The passwords do not match.');
       return;
     }
@@ -57,7 +58,7 @@ export const RegistrationScreen: React.FC<RegistrationScreenProps> = ({
         displayName,
         username: username.trim().replace(/^@/, ''),
         email: email.trim(),
-        password: isExistingUser ? undefined : password,
+        password: needsEmailPassword ? password : undefined,
         about: about.trim(),
         photoURL: auth.currentUser?.photoURL ?? null,
       });
@@ -117,11 +118,11 @@ export const RegistrationScreen: React.FC<RegistrationScreenProps> = ({
 
           <div>
             <label className="block text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-2 ml-2 flex items-center gap-2"><Mail size={12} /> Email address *</label>
-            <input className={fieldClass} type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" required readOnly={isExistingUser} />
+            <input className={fieldClass} type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" required readOnly={isExistingUser && !!auth.currentUser?.email} />
             <p className="text-[10px] text-gray-500 mt-2 ml-2">Your email is used for sign-in and recovery, not for finding contacts.</p>
           </div>
 
-          {!isExistingUser && (
+          {needsEmailPassword && (
             <>
               <div>
                 <label className="block text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-2 ml-2 flex items-center gap-2"><Lock size={12} /> Password *</label>
