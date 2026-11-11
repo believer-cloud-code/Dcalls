@@ -1,50 +1,36 @@
-import { collection, query, where, getDocs, limit } from 'firebase/firestore';
+import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 
-/** Normalize phone to E.164-style with leading + */
-export function normalizePhone(phone: string): string {
-  const trimmed = phone.trim();
-  return trimmed.startsWith('+') ? trimmed : `+${trimmed}`;
+export function normalizeUsername(username: string): string {
+  return username.trim().replace(/^@/, '').toLowerCase();
 }
 
-/** Look up a Dcalls user by verified phone number. */
-export async function lookupUserByPhone(phone: string): Promise<{
+export async function lookupUserByUsername(username: string): Promise<{
   uid: string;
-  displayName?: string;
-  photoURL?: string;
-  phoneNumber?: string;
-} | null> {
-  const normalized = normalizePhone(phone);
-  const usersRef = collection(db, 'users');
-  const q = query(usersRef, where('phoneNumber', '==', normalized), limit(1));
-  const snapshot = await getDocs(q);
-  if (snapshot.empty) return null;
-
-  const docSnap = snapshot.docs[0];
-  const data = docSnap.data();
-  return {
-    uid: docSnap.id,
-    displayName: data.displayName,
-    photoURL: data.photoURL,
-    phoneNumber: data.phoneNumber,
-  };
-}
-
-export async function lookupUidByPhone(phone: string): Promise<string | null> {
-  const user = await lookupUserByPhone(phone);
-  return user?.uid ?? null;
-}
-
-export async function resolveContactByPhone(phone: string): Promise<{
-  uid: string;
+  username: string;
+  displayName: string;
   photoURL?: string | null;
-  displayName?: string;
 } | null> {
-  const user = await lookupUserByPhone(phone);
-  if (!user) return null;
+  const normalized = normalizeUsername(username);
+  if (!/^[a-z0-9_]{3,20}$/.test(normalized)) return null;
+
+  const usernameSnapshot = await getDoc(doc(db, 'usernames', normalized));
+  if (!usernameSnapshot.exists()) return null;
+
+  const uid = usernameSnapshot.data().uid as string;
+  const profileSnapshot = await getDoc(doc(db, 'users', uid));
+  if (!profileSnapshot.exists()) return null;
+
+  const profile = profileSnapshot.data();
   return {
-    uid: user.uid,
-    photoURL: user.photoURL ?? null,
-    displayName: user.displayName,
+    uid,
+    username: profile.username || usernameSnapshot.data().username || normalized,
+    displayName: profile.displayName || [profile.firstName, profile.lastName].filter(Boolean).join(' ') || 'Dcalls user',
+    photoURL: profile.photoURL ?? null,
   };
+}
+
+export async function lookupUidByUsername(username: string): Promise<string | null> {
+  const user = await lookupUserByUsername(username);
+  return user?.uid ?? null;
 }
