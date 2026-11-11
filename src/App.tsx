@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { doc, getDoc, setDoc, collection, query, where, onSnapshot, orderBy, addDoc, serverTimestamp, limit, updateDoc } from 'firebase/firestore';
-import { db } from './firebase';
+import { db, auth } from './firebase';
 import { handleFirestoreError, OperationType } from './utils/firestoreErrorHandler';
 import { databaseService } from './services/databaseService';
 import { Layout } from './components/Layout';
