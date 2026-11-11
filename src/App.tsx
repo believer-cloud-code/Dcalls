@@ -74,7 +74,10 @@ export default function App() {
       if (!isMounted) return;
 
       const { exists, data } = result;
-      setIsRegistered(exists || !!(data as { isRegistered?: boolean })?.isRegistered);
+      const profile = data as { isRegistered?: boolean; usernameLower?: string } | null;
+      // Accounts created before username-based identity must complete the new profile
+      // before entering the app; their existing Firebase UID and history are retained.
+      setIsRegistered(exists && !!profile?.isRegistered && !!profile?.usernameLower);
 
       console.log("Profile loaded");
 
