@@ -11,7 +11,7 @@ import {
   updateProfile as updateFirebaseProfile,
   deleteUser,
 } from 'firebase/auth';
-import { doc, runTransaction, serverTimestamp } from 'firebase/firestore';
+import { doc, runTransaction, serverTimestamp, deleteField } from 'firebase/firestore';
 import { auth as firebaseAuth, db, googleProvider } from '../firebase';
 import { Preferences } from '@capacitor/preferences';
 
@@ -76,11 +76,17 @@ class AuthService {
       throw new Error('Username must be 3–20 characters and use only letters, numbers or underscores.');
     }
 
+    await updateFirebaseProfile(user, {
+      displayName: data.displayName.trim(),
+      photoURL: data.photoURL ?? user.photoURL ?? undefined,
+    });
+
     const usernameRef = doc(db, 'usernames', usernameLower);
     const profileRef = doc(db, 'users', user.uid);
 
     await runTransaction(db, async (transaction) => {
       const usernameSnapshot = await transaction.get(usernameRef);
+      const existingProfile = await transaction.get(profileRef);
       if (usernameSnapshot.exists() && usernameSnapshot.data().uid !== user.uid) {
         throw new Error('That username is already taken. Please choose another.');
       }
@@ -106,18 +112,16 @@ class AuthService {
         photoURL: data.photoURL ?? user.photoURL ?? null,
         isRegistered: true,
         emailVerified: user.emailVerified,
+        email: deleteField(),
+        phoneNumber: deleteField(),
         lastSeen: serverTimestamp(),
-        createdAt: serverTimestamp(),
+        createdAt: existingProfile.data()?.createdAt ?? serverTimestamp(),
       };
 
       // Email and password are deliberately not copied into the public profile.
       transaction.set(profileRef, profile, { merge: true });
     });
 
-    await updateFirebaseProfile(user, {
-      displayName: data.displayName.trim(),
-      photoURL: data.photoURL ?? user.photoURL ?? undefined,
-    });
   }
 
   async signInWithEmail(email: string, password: string): Promise<UnifiedUser> {
