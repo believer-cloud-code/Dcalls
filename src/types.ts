@@ -3,9 +3,6 @@ import { Timestamp } from 'firebase/firestore';
 export interface UserProfile {
   uid: string;
   displayName?: string;
-  email?: string;
-  phoneNumber?: string;
-  password?: string;
   photoURL?: string;
   status?: string;
   lastSeen?: Timestamp;
@@ -54,7 +51,6 @@ export interface CallRecord {
 export interface Contact {
   id: string;
   ownerId: string;
-  phoneNumber?: string;
   displayName: string;
   customName?: string;
   username?: string;
