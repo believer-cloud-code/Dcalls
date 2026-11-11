@@ -16,7 +16,6 @@ import { DamaiTab } from './components/DamaiTab';
 import { SettingsTab } from './components/SettingsTab';
 import { CallingScreen } from './components/CallingScreen';
 import { RegistrationScreen } from './components/RegistrationScreen';
-import { PhoneAuthScreen } from './components/PhoneAuthScreen';
 import { AddContactScreen } from './components/AddContactScreen';
 import { ContactsTab } from './components/ContactsTab';
 import { TabType, Chat, CallRecord, Contact } from './types';
@@ -30,8 +29,9 @@ function cn(...inputs: ClassValue[]) {
 }
 
 import { authService, UnifiedUser } from './services/authService';
+import { SignInScreen } from './components/SignInScreen';
 import { DcallsIcon } from './components/DcallsIcon';
-import { lookupUidByPhone } from './services/contactService';
+import { lookupUidByUsername } from './services/contactService';
 import { openMarketing } from './config/urls';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { startForegroundMessageListener } from './services/notificationService';
@@ -40,7 +40,6 @@ import { FeatureErrorBoundary } from './components/FeatureErrorBoundary';
 export default function App() {
   const [user, setUser] = useState<UnifiedUser | null>(null);
   const [isRegistered, setIsRegistered] = useState(false);
-  const [showPhoneAuth, setShowPhoneAuth] = useState(false);
   const [activeTab, setActiveTab] = useState<TabType>('chats');
   const [activeCall, setActiveCall] = useState<{ type: 'voice' | 'video', contactName?: string, contactPhoto?: string, contactId?: string, incomingCallId?: string } | null>(null);
   const [incomingCall, setIncomingCall] = useState<any>(null);
@@ -51,7 +50,7 @@ export default function App() {
   const [calls, setCalls] = useState<CallRecord[]>([]);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [showRegistration, setShowRegistration] = useState(false);
-  const [registrationData, setRegistrationData] = useState<any>(null);
+  const [showSignIn, setShowSignIn] = useState(false);
 
   const loadUserProfile = async (uid: string) => {
     let isMounted = true;
@@ -294,29 +293,22 @@ export default function App() {
     };
   }, [user, isRegistered]);
 
-  const handleLogin = async () => {
+  const handleGoogleLogin = async () => {
     setLoginError(null);
     try {
       await authService.signInWithGoogle();
     } catch (error: any) {
-      console.error("Login failed", error);
-      if (error.message.includes('Redirecting')) return;
-
-      if (error.code === 'auth/unauthorized-domain') {
-        setLoginError('This domain is not authorized. Please add the current URL to your Firebase Console > Authentication > Settings > Authorized domains.');
-      } else if (error.code === 'auth/popup-blocked') {
-        setLoginError('The login popup was blocked by your browser. Please allow popups for this site and try again.');
-      } else {
-        setLoginError(error.message || 'Login failed. Please try again.');
-      }
+      console.error("Google login failed", error);
+      if (error.message?.includes('Redirecting')) return;
+      setLoginError(error.message || 'Google sign-in failed. Please try again.');
     }
   };
 
   const resolveContactUid = async (contact: Contact, signal?: AbortSignal): Promise<string | undefined> => {
     if (contact.uid) return contact.uid;
-    if (contact.phoneNumber) {
+    if (contact.username) {
       try {
-        const uid = await lookupUidByPhone(contact.phoneNumber);
+        const uid = await lookupUidByUsername(contact.username);
         if (signal?.aborted) return undefined;
         return uid ?? undefined;
       } catch (error) {
@@ -442,94 +434,53 @@ export default function App() {
     return (
       <div className="h-screen bg-[#0a0a0a] flex flex-col items-center justify-center p-6 text-center space-y-8 overflow-hidden relative">
         <div className="absolute inset-0 bg-gradient-to-b from-indigo-500/10 via-transparent to-purple-500/10 pointer-events-none" />
-
-        <motion.div
-          initial={{ scale: 0.8, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          className="w-24 h-24 rounded-[2.5rem] bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center shadow-[0_0_50px_rgba(139,92,246,0.3)] relative z-10"
-        >
+        <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="w-24 h-24 rounded-[2.5rem] bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center shadow-[0_0_50px_rgba(139,92,246,0.3)] relative z-10">
           <DcallsIcon size={48} className="text-white" />
         </motion.div>
-
         <div className="space-y-3 z-10">
           <h1 className="text-5xl font-black tracking-tighter text-white">Dcalls</h1>
           <p className="text-gray-400 text-sm max-w-[250px] mx-auto leading-relaxed">
             The next generation of messaging. Secure, fluid, and powered by <span className="text-purple-400 font-bold">Damai AI</span>.
           </p>
         </div>
-
         <div className="flex flex-col gap-4 w-full max-w-[280px] z-10">
-          <motion.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            onClick={() => setShowRegistration(true)}
-            className="flex items-center justify-center gap-3 w-full py-4 bg-indigo-600 text-white rounded-3xl font-bold uppercase tracking-widest text-[10px] shadow-xl shadow-indigo-600/20"
-          >
-            <UserPlus size={16} />
-            Sign Up
+          <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={() => setShowRegistration(true)} className="flex items-center justify-center gap-3 w-full py-4 bg-indigo-600 text-white rounded-3xl font-bold uppercase tracking-widest text-[10px] shadow-xl shadow-indigo-600/20">
+            <UserPlus size={16} /> Sign Up
           </motion.button>
-
-          <motion.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            onClick={handleLogin}
-            className="flex items-center justify-center gap-3 w-full py-4 bg-white/5 border border-white/10 text-white rounded-3xl font-bold uppercase tracking-widest text-[10px] hover:bg-white/10 transition-colors"
-          >
-            <LogIn size={16} />
-            Sign in with Google
+          <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={() => setShowSignIn(true)} className="flex items-center justify-center gap-3 w-full py-4 bg-white/5 border border-white/10 text-white rounded-3xl font-bold uppercase tracking-widest text-[10px] hover:bg-white/10 transition-colors">
+            <LogIn size={16} /> Sign in with Email
           </motion.button>
-
-          {loginError && (
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="p-4 bg-red-500/10 border border-red-500/20 rounded-2xl text-[10px] text-red-400 font-medium leading-relaxed"
-            >
-              {loginError}
-            </motion.div>
-          )}
+          <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={handleGoogleLogin} className="flex items-center justify-center gap-3 w-full py-4 bg-white/5 border border-white/10 text-white rounded-3xl font-bold uppercase tracking-widest text-[10px] hover:bg-white/10 transition-colors">
+            <LogIn size={16} /> Continue with Google
+          </motion.button>
+          {loginError && <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="p-4 bg-red-500/10 border border-red-500/20 rounded-2xl text-[10px] text-red-400 font-medium leading-relaxed">{loginError}</motion.div>}
         </div>
-
         <AnimatePresence>
           {showRegistration && (
-            <FeatureErrorBoundary
-              featureName="Registration"
-              onReset={() => setShowRegistration(false)}
-            >
+            <FeatureErrorBoundary featureName="Registration" onReset={() => setShowRegistration(false)}>
               <RegistrationScreen
-                onComplete={(data) => {
-                  setRegistrationData(data);
+                onComplete={async (data) => {
+                  await authService.registerWithEmail(data);
                   setShowRegistration(false);
-                  setShowPhoneAuth(true);
                 }}
                 onBack={() => setShowRegistration(false)}
               />
             </FeatureErrorBoundary>
           )}
-          {showPhoneAuth && (
-            <FeatureErrorBoundary
-              featureName="Phone Authentication"
-              onReset={() => setShowPhoneAuth(false)}
-            >
-              <PhoneAuthScreen
-                phoneNumber={registrationData?.phoneNumber}
-                onSuccess={() => {
-                  setShowPhoneAuth(false);
+          {showSignIn && (
+            <FeatureErrorBoundary featureName="Sign in" onReset={() => setShowSignIn(false)}>
+              <SignInScreen
+                onSignIn={async (email, password) => {
+                  await authService.signInWithEmail(email, password);
+                  setShowSignIn(false);
                 }}
-                onBack={() => {
-                  setShowPhoneAuth(false);
-                  if (registrationData) setShowRegistration(true);
-                }}
+                onResetPassword={(email) => authService.sendPasswordReset(email)}
+                onBack={() => setShowSignIn(false)}
               />
             </FeatureErrorBoundary>
           )}
         </AnimatePresence>
-
-        <button
-          type="button"
-          onClick={() => openMarketing()}
-          className="absolute bottom-12 text-[10px] text-gray-500 font-bold uppercase tracking-[0.35em] z-10 hover:text-purple-400 transition-colors"
-        >
+        <button type="button" onClick={() => openMarketing()} className="absolute bottom-12 text-[10px] text-gray-500 font-bold uppercase tracking-[0.35em] z-10 hover:text-purple-400 transition-colors">
           Learn more at Dcalls.com
         </button>
       </div>
@@ -537,65 +488,14 @@ export default function App() {
   }
 
   if (!isRegistered) {
-    if (registrationData) {
-      return (
-        <PhoneAuthScreen
-          phoneNumber={registrationData.phoneNumber}
-          onSuccess={async () => {
-            const firebaseUser = auth.currentUser;
-
-            if (!firebaseUser) {
-              console.error(
-                "Phone verification completed, but Firebase currentUser is not available."
-              );
-              return;
-            }
-
-            const unifiedUser: UnifiedUser = {
-              uid: firebaseUser.uid,
-              email: firebaseUser.email,
-              displayName: firebaseUser.displayName,
-              photoURL: firebaseUser.photoURL,
-              phoneNumber: firebaseUser.phoneNumber,
-              provider: 'firebase',
-            };
-
-            try {
-              const userRef = doc(db, 'users', firebaseUser.uid);
-
-              await setDoc(userRef, {
-                uid: firebaseUser.uid,
-                ...registrationData,
-                photoURL: firebaseUser.photoURL,
-                isRegistered: true,
-                lastSeen: serverTimestamp(),
-                createdAt: serverTimestamp(),
-              }, { merge: true });
-
-              setUser(unifiedUser);
-              setIsRegistered(true);
-              setRegistrationData(null);
-
-              console.log(
-                "Dcalls registration completed successfully:",
-                firebaseUser.uid
-              );
-            } catch (error) {
-              console.error(
-                "Failed to complete registration",
-                error
-              );
-            }
-          }}
-          onBack={() => setRegistrationData(null)}
-        />
-      );
-    }
     return (
       <RegistrationScreen
-        onComplete={(data) => {
-          setRegistrationData(data);
+        isExistingUser
+        onComplete={async (data) => {
+          await authService.completeProfile(data);
+          setIsRegistered(true);
         }}
+        onBack={() => { void authService.signOut(); }}
       />
     );
   }
