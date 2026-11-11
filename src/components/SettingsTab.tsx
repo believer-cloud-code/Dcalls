@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { User, Bell, Shield, HelpCircle, LogOut, ChevronRight, Moon, Languages, X, Camera, Check, Smartphone, Lock, Eye, Volume2, Palette, Globe, ArrowLeft, Smile, Zap, MessageSquare } from 'lucide-react';
+import { User, Bell, Shield, HelpCircle, LogOut, ChevronRight, Moon, Languages, X, Camera, Check, Lock, Eye, Volume2, Palette, Globe, ArrowLeft, Smile, Zap, MessageSquare } from 'lucide-react';
 import { DcallsIcon } from './DcallsIcon';
 import { authService, UnifiedUser } from '../services/authService';
 import { db } from '../firebase';
@@ -86,8 +86,6 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ user }) => {
   const [fontSize, setFontSize] = useState((user as any)?.settings?.fontSize ?? 'Medium');
   const [blockedContacts, setBlockedContacts] = useState<string[]>((user as any)?.settings?.blockedContacts ?? []);
   const [showBlockedList, setShowBlockedList] = useState(false);
-  const [showChangeNumber, setShowChangeNumber] = useState(false);
-  const [newNumber, setNewNumber] = useState('');
 
   const updateSetting = async (key: string, value: any) => {
     if (!user) return;
@@ -118,7 +116,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ user }) => {
   };
 
   const sections = [
-    { icon: <User size={20} />, label: "Account", desc: "Privacy, security, change number" },
+    { icon: <User size={20} />, label: "Account", desc: "Privacy and account security" },
     { icon: <Languages size={20} />, label: "Translation", desc: "Default languages, AI voice" },
     { icon: <Bell size={20} />, label: "Notifications", desc: "Message, group & call tones" },
     { icon: <Moon size={20} />, label: "Appearance", desc: "Dark mode, wallpapers" },
@@ -293,12 +291,6 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ user }) => {
             <div className="flex-1 overflow-y-auto p-6 space-y-8">
               {activeSection === "Account" && (
                 <div className="space-y-6">
-                  <SettingItem
-                    icon={<Smartphone size={20} />}
-                    label="Change Number"
-                    desc="Migrate your account info, groups & settings"
-                    onClick={() => setShowChangeNumber(true)}
-                  />
                   <SettingItem
                     icon={<Lock size={20} />}
                     label="Two-step Verification"
@@ -716,65 +708,6 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ user }) => {
                     </div>
                   ))
                 )}
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Change Number Modal */}
-      <AnimatePresence>
-        {showChangeNumber && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/80 backdrop-blur-md z-[200] flex items-center justify-center p-6"
-          >
-            <motion.div
-              initial={{ scale: 0.9, y: 20 }}
-              animate={{ scale: 1, y: 0 }}
-              exit={{ scale: 0.9, y: 20 }}
-              className="w-full max-w-md bg-[#121212] border border-white/10 rounded-[2.5rem] overflow-hidden shadow-2xl"
-            >
-              <div className="p-6 border-b border-white/5 flex items-center justify-between">
-                <h3 className="text-lg font-bold">Change Number</h3>
-                <button onClick={() => setShowChangeNumber(false)} className="p-2 hover:bg-white/5 rounded-xl text-gray-500">
-                  <X size={20} />
-                </button>
-              </div>
-              <div className="p-8 space-y-6">
-                <div className="space-y-4">
-                  <p className="text-xs text-gray-400 leading-relaxed">
-                    Changing your phone number will migrate your account info, groups and settings.
-                  </p>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">New Phone Number</label>
-                    <input
-                      type="tel"
-                      value={newNumber}
-                      onChange={(e) => setNewNumber(e.target.value)}
-                      placeholder="+1 234 567 8900"
-                      className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-4 text-sm text-white focus:outline-none focus:border-indigo-500/50"
-                    />
-                  </div>
-                </div>
-                <button
-                  onClick={async () => {
-                    if (!newNumber.trim()) return;
-                    if (user) {
-                      await updateDoc(doc(db, 'users', user.uid), {
-                        phoneNumber: newNumber.trim()
-                      });
-                      alert("Phone number updated successfully!");
-                      setShowChangeNumber(false);
-                      setNewNumber('');
-                    }
-                  }}
-                  className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold uppercase tracking-widest text-xs hover:bg-indigo-500 transition-all active:scale-95 shadow-lg shadow-indigo-600/20"
-                >
-                  Change Number
-                </button>
               </div>
             </motion.div>
           </motion.div>
