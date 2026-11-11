@@ -11,13 +11,6 @@ binding = "BUCKET"
 bucket_name = "dcalls-uploads"
 
 # Secrets are configured with:
-# wrangler secret put VONAGE_API_KEY
-# wrangler secret put VONAGE_API_SECRET
-# wrangler secret put VONAGE_BRAND
 # wrangler secret put FIREBASE_WEB_API_KEY
-# wrangler secret put FIREBASE_PROJECT_ID
-# wrangler secret put FIREBASE_SERVICE_ACCOUNT_EMAIL
-# wrangler secret put FIREBASE_SERVICE_ACCOUNT_PRIVATE_KEY
-# wrangler secret put AUTH_TRANSACTION_SECRET
 # wrangler secret put DEEPSEEK_API_KEY
 # wrangler secret put OPENROUTER_API_KEY
