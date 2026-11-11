@@ -1,8 +1,3 @@
-import {
-  handleSendOtp,
-  handleVerifyOtp,
-} from './auth';
-
 export interface Env {
   BUCKET: R2Bucket;
   PUBLIC_URL?: string;
@@ -13,15 +8,6 @@ export interface Env {
   GEMINI_API_URL?: string;
   ALLOWED_ORIGINS?: string;
 
-  VONAGE_API_KEY?: string;
-  VONAGE_API_SECRET?: string;
-  VONAGE_BRAND?: string;
-
-  FIREBASE_SERVICE_ACCOUNT_EMAIL?: string;
-  FIREBASE_SERVICE_ACCOUNT_PRIVATE_KEY?: string;
-
-  AUTH_TRANSACTION_SECRET?: string;
-  FIREBASE_PROJECT_ID?: string;
 }
 
 function getAllowedOrigins(env: Env) {
@@ -648,72 +634,6 @@ export default {
         status: 204,
         headers: applyCorsHeaders(request, env),
       });
-    }
-
-    if (
-      url.pathname === '/auth/send-otp'
-    ) {
-      try {
-        return await handleSendOtp(
-          request,
-          env
-        );
-      } catch (error: any) {
-        console.error(
-          'Send OTP error:',
-          error
-        );
-
-        return Response.json(
-          {
-            error:
-              error?.message ||
-              'Unable to send verification code.',
-          },
-          {
-            status:
-              error?.status || 500,
-            headers:
-              applyCorsHeaders(
-                request,
-                env
-              ),
-          }
-        );
-      }
-    }
-
-    if (
-      url.pathname === '/auth/verify-otp'
-    ) {
-      try {
-        return await handleVerifyOtp(
-          request,
-          env
-        );
-      } catch (error: any) {
-        console.error(
-          'Verify OTP error:',
-          error
-        );
-
-        return Response.json(
-          {
-            error:
-              error?.message ||
-              'Unable to verify code.',
-          },
-          {
-            status:
-              error?.status || 500,
-            headers:
-              applyCorsHeaders(
-                request,
-                env
-              ),
-          }
-        );
-      }
     }
 
     if (url.pathname === '/ai') {
