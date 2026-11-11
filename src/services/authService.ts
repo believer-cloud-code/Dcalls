@@ -114,6 +114,7 @@ class AuthService {
         emailVerified: user.emailVerified,
         email: deleteField(),
         phoneNumber: deleteField(),
+        password: deleteField(),
         lastSeen: serverTimestamp(),
         createdAt: existingProfile.data()?.createdAt ?? serverTimestamp(),
       };
