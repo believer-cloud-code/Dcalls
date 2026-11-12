@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { doc, getDoc, collection, onSnapshot, query, where, orderBy, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db, auth } from '../firebase';
-import { lookupUidByPhone } from '../services/contactService';
 import { ChatList } from './ChatList';
 import { ChatInterface } from './ChatInterface';
 import { Contact, Chat } from '../types';
@@ -55,7 +54,6 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({ searchQuery }) => {
                         ownerId: auth.currentUser?.uid || '',
                         displayName: userData.displayName || 'User',
                         photoURL: userData.photoURL,
-                        phoneNumber: userData.phoneNumber,
                         status: userData.status
                     } as Contact);
                 }
@@ -66,10 +64,10 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({ searchQuery }) => {
     const handleStartChat = async (contact: Contact) => {
         if (!auth.currentUser) return;
 
-        let partnerUid = contact.uid;
-        if (!partnerUid && contact.phoneNumber) {
-            partnerUid = (await lookupUidByPhone(contact.phoneNumber)) ?? undefined;
-        }
+        // Contacts are linked by their Firebase UID, resolved through
+        // username discovery when the contact is added. Phone lookup is
+        // intentionally not used in the username-based account model.
+        const partnerUid = contact.uid;
         if (!partnerUid) return;
 
         // Check if chat already exists
