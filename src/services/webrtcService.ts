@@ -473,11 +473,27 @@ export class WebRTCService {
       `[WebRTC] Creating call ${this.callId} from ${callerId} to ${receiverId} (${type})`
     );
 
+    // Create the offer before starting ICE gathering.
+    const offerDescription = await this.pc.createOffer({
+      offerToReceiveAudio: true,
+      offerToReceiveVideo: type === 'video',
+    });
+
+    console.log('[WebRTC] Caller offer created');
+
+    // Create the parent call document before candidate listeners or
+    // ICE candidate writes need to read it in Firestore security rules.
+    await setDoc(callDoc, {
+      callerId,
+      receiverId,
+      type,
+      status: 'ringing',
+      createdAt: serverTimestamp(),
+    });
+
     /*
-     * IMPORTANT:
-     * Subscribe to the remote candidate collection BEFORE creating
-     * the offer/local description. This prevents early ICE candidates
-     * from being missed by the other side.
+     * Subscribe before setting the local description so remote ICE
+     * candidates are not missed, while ensuring the parent call exists.
      */
     const candidatesUnsub = this.subscribeCandidates(
       candidatesCol,
@@ -511,26 +527,13 @@ export class WebRTCService {
       });
     };
 
-    const offerDescription = await this.pc.createOffer({
-      offerToReceiveAudio: true,
-      offerToReceiveVideo: type === 'video',
-    });
-
-    console.log('[WebRTC] Caller offer created');
-
+    // ICE gathering starts after setLocalDescription; the parent call
+    // now exists before the browser can emit candidate writes.
     await this.pc.setLocalDescription(offerDescription);
 
     console.log(
       `[WebRTC] Caller local description set. signaling=${this.pc.signalingState}, iceGathering=${this.pc.iceGatheringState}`
     );
-
-    await setDoc(callDoc, {
-      callerId,
-      receiverId,
-      type,
-      status: 'ringing',
-      createdAt: serverTimestamp(),
-    });
 
     await setDoc(offerDoc, {
       sdp: offerDescription.sdp,
