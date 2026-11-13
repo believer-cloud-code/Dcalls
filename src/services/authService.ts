@@ -1,18 +1,15 @@
 import {
   createUserWithEmailAndPassword,
-  EmailAuthProvider,
-  linkWithCredential,
   signInWithEmailAndPassword,
   sendPasswordResetEmail,
   signInWithPopup,
   signInWithRedirect,
   getRedirectResult,
-  GoogleAuthProvider,
   User as FirebaseUser,
   onAuthStateChanged,
   updateProfile as updateFirebaseProfile,
 } from 'firebase/auth';
-import { doc, runTransaction, serverTimestamp, deleteField, updateDoc } from 'firebase/firestore';
+import { doc, runTransaction, serverTimestamp, deleteField } from 'firebase/firestore';
 import { auth as firebaseAuth, db, googleProvider } from '../firebase';
 import { Preferences } from '@capacitor/preferences';
 
@@ -117,28 +114,6 @@ class AuthService {
 
   }
 
-  async linkEmailPassword(email: string, password: string): Promise<UnifiedUser> {
-    const currentUser = firebaseAuth.currentUser;
-    if (!currentUser) throw new Error('Please sign in again before linking an email.');
-    if (currentUser.email) throw new Error('This account already has an email sign-in method.');
-    if (!email.trim() || password.length < 6) {
-      throw new Error('Enter a valid email address and a password of at least 6 characters.');
-    }
-
-    const credential = EmailAuthProvider.credential(email.trim(), password);
-    const result = await linkWithCredential(currentUser, credential);
-
-    // Remove legacy phone/email fields from the public profile after the
-    // existing Firebase UID has been linked to the new sign-in method.
-    await updateDoc(doc(db, 'users', currentUser.uid), {
-      email: deleteField(),
-      phoneNumber: deleteField(),
-      password: deleteField(),
-      emailVerified: result.user.emailVerified,
-    });
-
-    return this.mapFirebaseUser(result.user);
-  }
 
   async signInWithEmail(email: string, password: string): Promise<UnifiedUser> {
     const result = await signInWithEmailAndPassword(firebaseAuth, email.trim(), password);
