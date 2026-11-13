@@ -39,6 +39,11 @@ import { FeatureErrorBoundary } from './components/FeatureErrorBoundary';
 export default function App() {
   const [user, setUser] = useState<UnifiedUser | null>(null);
   const [isRegistered, setIsRegistered] = useState(false);
+  const [authReady, setAuthReady] = useState(false);
+  const [authActionInProgress, setAuthActionInProgress] = useState(false);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [profileLoadError, setProfileLoadError] = useState<string | null>(null);
+  const [profileRetry, setProfileRetry] = useState(0);
   const [activeTab, setActiveTab] = useState<TabType>('chats');
   const [activeCall, setActiveCall] = useState<{ type: 'voice' | 'video', contactName?: string, contactPhoto?: string, contactId?: string, incomingCallId?: string } | null>(null);
   const [incomingCall, setIncomingCall] = useState<any>(null);
@@ -50,47 +55,6 @@ export default function App() {
   const [loginError, setLoginError] = useState<string | null>(null);
   const [showRegistration, setShowRegistration] = useState(false);
   const [showSignIn, setShowSignIn] = useState(false);
-
-  const loadUserProfile = async (uid: string) => {
-    let isMounted = true;
-
-    try {
-      console.log("Loading user profile...");
-
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error("Profile timeout")), 5000)
-      );
-
-      const profilePromise = databaseService.getDocument(
-        "users",
-        uid
-      );
-
-      const result: any = await Promise.race([
-        profilePromise,
-        timeoutPromise,
-      ]);
-
-      if (!isMounted) return;
-
-      const { exists, data } = result;
-      const profile = data as { isRegistered?: boolean; usernameLower?: string } | null;
-      // Accounts created before username-based identity must complete the new profile
-      // before entering the app; their existing Firebase UID and history are retained.
-      setIsRegistered(exists && !!profile?.isRegistered && !!profile?.usernameLower);
-
-      console.log("Profile loaded");
-
-    } catch (error) {
-      console.error("Profile loading failed:", error);
-      if (!isMounted) return;
-      setIsRegistered(false);
-    }
-
-    return () => {
-      isMounted = false;
-    };
-  };
 
   useEffect(() => {
     const handleOnline = () => setIsOffline(false);
@@ -113,18 +77,15 @@ export default function App() {
     console.log("Initializing auth...");
     let isMounted = true;
 
-    const unsubscribe = authService.onAuthStateChanged((user) => {
-      console.log("Auth state changed:", user);
+    const unsubscribe = authService.onAuthStateChanged((nextUser) => {
+      console.log("Auth state changed:", nextUser);
       if (!isMounted) return;
 
-      setUser(user || null);
-
-      // Profile loading happens separately
-      if (user) {
-        loadUserProfile(user.uid);
-      } else {
-        setIsRegistered(false);
-      }
+      setUser(nextUser || null);
+      setAuthReady(true);
+      setIsRegistered(false);
+      setProfileLoadError(null);
+      setProfileLoading(!!nextUser);
     });
 
     return () => {
@@ -133,6 +94,40 @@ export default function App() {
     };
   }, []);
 
+  // Resolve the authenticated user's profile independently from the auth event.
+  // A read failure is not evidence that the user needs to register.
+  useEffect(() => {
+    if (!user || authActionInProgress) {
+      if (!user) {
+        setProfileLoading(false);
+        setProfileLoadError(null);
+      }
+      return;
+    }
+
+    let cancelled = false;
+    setProfileLoading(true);
+    setProfileLoadError(null);
+
+    databaseService.getDocument("users", user.uid)
+      .then((result: any) => {
+        if (cancelled) return;
+        const profile = result.data as { isRegistered?: boolean; usernameLower?: string } | null;
+        setIsRegistered(!!result.exists && !!profile?.isRegistered && !!profile?.usernameLower);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        console.error("Profile loading failed:", error);
+        setProfileLoadError("We couldn't load your Dcalls profile. Check your connection and try again.");
+      })
+      .finally(() => {
+        if (!cancelled) setProfileLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user, authActionInProgress, profileRetry]);
 
   useEffect(() => {
     if (!user || !isRegistered) return;
@@ -297,12 +292,15 @@ export default function App() {
 
   const handleGoogleLogin = async () => {
     setLoginError(null);
+    setAuthActionInProgress(true);
     try {
       await authService.signInWithGoogle();
     } catch (error: any) {
       console.error("Google login failed", error);
       if (error.message?.includes('Redirecting')) return;
       setLoginError(error.message || 'Google sign-in failed. Please try again.');
+    } finally {
+      setAuthActionInProgress(false);
     }
   };
 
@@ -432,6 +430,17 @@ export default function App() {
     }
   };
 
+  if (!authReady || authActionInProgress) {
+    return (
+      <div className="h-screen bg-[#0a0a0a] flex items-center justify-center text-gray-300">
+        <div className="text-center space-y-3">
+          <div className="w-8 h-8 mx-auto rounded-full border-2 border-indigo-400 border-t-transparent animate-spin" />
+          <p className="text-sm">Preparing Dcalls…</p>
+        </div>
+      </div>
+    );
+  }
+
   if (!user) {
     return (
       <div className="h-screen bg-[#0a0a0a] flex flex-col items-center justify-center p-6 text-center space-y-8 overflow-hidden relative">
@@ -462,8 +471,13 @@ export default function App() {
             <FeatureErrorBoundary featureName="Registration" onReset={() => setShowRegistration(false)}>
               <RegistrationScreen
                 onComplete={async (data) => {
-                  await authService.registerWithEmail(data);
-                  setShowRegistration(false);
+                  setAuthActionInProgress(true);
+                  try {
+                    await authService.registerWithEmail(data);
+                    setShowRegistration(false);
+                  } finally {
+                    setAuthActionInProgress(false);
+                  }
                 }}
                 onBack={() => setShowRegistration(false)}
               />
@@ -473,8 +487,13 @@ export default function App() {
             <FeatureErrorBoundary featureName="Sign in" onReset={() => setShowSignIn(false)}>
               <SignInScreen
                 onSignIn={async (email, password) => {
-                  await authService.signInWithEmail(email, password);
-                  setShowSignIn(false);
+                  setAuthActionInProgress(true);
+                  try {
+                    await authService.signInWithEmail(email, password);
+                    setShowSignIn(false);
+                  } finally {
+                    setAuthActionInProgress(false);
+                  }
                 }}
                 onResetPassword={(email) => authService.sendPasswordReset(email)}
                 onBack={() => setShowSignIn(false)}
@@ -489,17 +508,36 @@ export default function App() {
     );
   }
 
+  if (profileLoading) {
+    return (
+      <div className="h-screen bg-[#0a0a0a] flex items-center justify-center text-gray-300">
+        <div className="text-center space-y-3">
+          <div className="w-8 h-8 mx-auto rounded-full border-2 border-indigo-400 border-t-transparent animate-spin" />
+          <p className="text-sm">Loading your Dcalls profile…</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (profileLoadError) {
+    return (
+      <div className="h-screen bg-[#0a0a0a] flex items-center justify-center p-6 text-center">
+        <div className="max-w-sm space-y-4">
+          <h2 className="text-xl font-bold text-white">Unable to load your profile</h2>
+          <p className="text-sm text-gray-400">{profileLoadError}</p>
+          <button onClick={() => setProfileRetry(value => value + 1)} className="w-full py-3 rounded-xl bg-indigo-600 text-white font-semibold">Try again</button>
+          <button onClick={() => { void authService.signOut(); }} className="w-full py-3 rounded-xl border border-white/10 text-gray-300">Sign out</button>
+        </div>
+      </div>
+    );
+  }
+
   if (!isRegistered) {
     return (
       <RegistrationScreen
         isExistingUser
         onComplete={async (data) => {
           if (!auth.currentUser) throw new Error('Please sign in again to complete your profile.');
-          // A legacy phone-auth session can be linked to email/password without
-          // sending another SMS, preserving its Firebase UID and existing data.
-          if (!auth.currentUser.email) {
-            await authService.linkEmailPassword(data.email, data.password || '');
-          }
           await authService.completeProfile(data);
           setIsRegistered(true);
         }}
