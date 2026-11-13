@@ -11,7 +11,6 @@ import {
   User as FirebaseUser,
   onAuthStateChanged,
   updateProfile as updateFirebaseProfile,
-  deleteUser,
 } from 'firebase/auth';
 import { doc, runTransaction, serverTimestamp, deleteField, updateDoc } from 'firebase/firestore';
 import { auth as firebaseAuth, db, googleProvider } from '../firebase';
@@ -48,19 +47,11 @@ class AuthService {
       data.password || ''
     );
 
-    try {
-      await this.saveProfile(credential.user, data);
-      return this.mapFirebaseUser(credential.user);
-    } catch (error) {
-      // Do not leave an authenticated account behind if its required
-      // profile/unique username could not be created.
-      try {
-        await deleteUser(credential.user);
-      } catch (cleanupError) {
-        console.error('Could not clean up incomplete account:', cleanupError);
-      }
-      throw error;
-    }
+    // Keep the Firebase account if profile creation fails. The authenticated
+    // user can retry profile setup with the same UID instead of being forced
+    // into a registration loop or having their account deleted.
+    await this.saveProfile(credential.user, data);
+    return this.mapFirebaseUser(credential.user);
   }
 
   async completeProfile(data: NewAccountData): Promise<void> {
