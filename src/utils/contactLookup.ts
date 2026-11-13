@@ -1,7 +1,2 @@
-/** @deprecated Import from `../services/contactService` instead */
-export {
-  normalizePhone,
-  lookupUidByPhone,
-  lookupUserByPhone,
-  resolveContactByPhone,
-} from '../services/contactService';
+/** @deprecated Phone-number contact lookup was removed; Dcalls uses username lookup. */
+export {};
