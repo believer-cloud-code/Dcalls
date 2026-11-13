@@ -70,11 +70,6 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ user }) => {
   const [status, setStatus] = useState('Available');
   const [isSaving, setIsSaving] = useState(false);
   const [activeSection, setActiveSection] = useState<string | null>(null);
-  const [linkEmail, setLinkEmail] = useState('');
-  const [linkPassword, setLinkPassword] = useState('');
-  const [linkPasswordConfirm, setLinkPasswordConfirm] = useState('');
-  const [linkingEmail, setLinkingEmail] = useState(false);
-  const [linkEmailError, setLinkEmailError] = useState('');
 
   // Settings states
   const [notificationsEnabled, setNotificationsEnabled] = useState((user as any)?.settings?.notifications ?? true);
@@ -296,40 +291,6 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ user }) => {
             <div className="flex-1 overflow-y-auto p-6 space-y-8">
               {activeSection === "Account" && (
                 <div className="space-y-6">
-                  {!user?.email && (
-                    <div className="rounded-2xl border border-indigo-500/20 bg-indigo-500/5 p-4 space-y-3">
-                      <div>
-                        <h3 className="text-sm font-semibold text-white">Add email sign-in</h3>
-                        <p className="text-xs text-gray-400 mt-1">Your current session can be linked to an email and password. This preserves your existing Dcalls UID, contacts, chats and call history while removing the need to sign in with a phone number again.</p>
-                      </div>
-                      <input type="email" value={linkEmail} onChange={e => setLinkEmail(e.target.value)} placeholder="Email address" autoComplete="email" className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-indigo-500/50" />
-                      <input type="password" value={linkPassword} onChange={e => setLinkPassword(e.target.value)} placeholder="New password (at least 6 characters)" autoComplete="new-password" className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-indigo-500/50" />
-                      <input type="password" value={linkPasswordConfirm} onChange={e => setLinkPasswordConfirm(e.target.value)} placeholder="Confirm password" autoComplete="new-password" className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-indigo-500/50" />
-                      {linkEmailError && <p role="alert" className="text-xs text-red-400">{linkEmailError}</p>}
-                      <button
-                        disabled={linkingEmail || !linkEmail.trim() || linkPassword.length < 6 || linkPassword !== linkPasswordConfirm}
-                        onClick={async () => {
-                          setLinkingEmail(true);
-                          setLinkEmailError('');
-                          try {
-                            await authService.linkEmailPassword(linkEmail, linkPassword);
-                            setLinkEmail('');
-                            setLinkPassword('');
-                            setLinkPasswordConfirm('');
-                          } catch (error: any) {
-                            setLinkEmailError(error?.code === 'auth/email-already-in-use'
-                              ? 'That email already belongs to another Dcalls/Firebase account. Sign in to that account instead; accounts cannot be merged automatically.'
-                              : error?.message || 'Could not link this email. Please try again.');
-                          } finally {
-                            setLinkingEmail(false);
-                          }
-                        }}
-                        className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 rounded-xl text-white text-xs font-bold uppercase tracking-widest"
-                      >
-                        {linkingEmail ? 'Linking account…' : 'Link email and password'}
-                      </button>
-                    </div>
-                  )}
                   <SettingItem
                     icon={<Lock size={20} />}
                     label="Two-step Verification"
