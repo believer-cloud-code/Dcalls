@@ -163,9 +163,11 @@ class AuthService {
 
   onAuthStateChanged(callback: (user: UnifiedUser | null) => void) {
     let lastUser: UnifiedUser | null = null;
+    let hasEmittedInitialState = false;
 
     const emit = (user: UnifiedUser | null) => {
-      if (JSON.stringify(user) === JSON.stringify(lastUser)) return;
+      if (hasEmittedInitialState && JSON.stringify(user) === JSON.stringify(lastUser)) return;
+      hasEmittedInitialState = true;
       lastUser = user;
 
       if (user) {
