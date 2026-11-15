@@ -165,24 +165,60 @@ class AuthService {
     let lastUser: UnifiedUser | null = null;
     let hasEmittedInitialState = false;
 
+    console.info('[Auth diagnostic] Registering Firebase auth observer.');
+
     const emit = (user: UnifiedUser | null) => {
       if (hasEmittedInitialState && JSON.stringify(user) === JSON.stringify(lastUser)) return;
       hasEmittedInitialState = true;
       lastUser = user;
 
-      if (user) {
-        localStorage.setItem('dcalls_user', JSON.stringify(user));
-        void Preferences.set({ key: 'dcalls_user', value: JSON.stringify(user) });
-      } else {
-        localStorage.removeItem('dcalls_user');
-        void Preferences.remove({ key: 'dcalls_user' });
+      // Local cache failures must never prevent the app's auth state from updating.
+      try {
+        if (user) {
+          localStorage.setItem('dcalls_user', JSON.stringify(user));
+        } else {
+          localStorage.removeItem('dcalls_user');
+        }
+      } catch (error) {
+        console.warn('[Auth diagnostic] localStorage cache unavailable:', error);
       }
+
+      const preferenceWrite = user
+        ? Preferences.set({ key: 'dcalls_user', value: JSON.stringify(user) })
+        : Preferences.remove({ key: 'dcalls_user' });
+      void preferenceWrite.catch((error) => {
+        console.warn('[Auth diagnostic] Capacitor Preferences cache unavailable:', error);
+      });
+
+      console.info('[Auth diagnostic] Emitting auth state:', user ? 'signed in' : 'signed out');
       callback(user);
     };
 
-    const unsubscribe = onAuthStateChanged(firebaseAuth, (user) => {
-      emit(user ? this.mapFirebaseUser(user) : null);
-    });
+    const unsubscribe = onAuthStateChanged(
+      firebaseAuth,
+      (user) => {
+        console.info('[Auth diagnostic] Firebase observer callback received.');
+        emit(user ? this.mapFirebaseUser(user) : null);
+      },
+      (error) => {
+        console.error('[Auth diagnostic] Firebase auth observer failed:', error);
+      }
+    );
+
+    console.info('[Auth diagnostic] Firebase auth observer registered.');
+
+    // This independently reports whether Firebase has completed its initial
+    // persistence restoration, even if the observer callback is delayed.
+    void firebaseAuth.authStateReady()
+      .then(() => {
+        console.info(
+          '[Auth diagnostic] Firebase auth initialization ready. Current user:',
+          firebaseAuth.currentUser ? 'signed in' : 'signed out'
+        );
+      })
+      .catch((error) => {
+        console.error('[Auth diagnostic] Firebase auth initialization failed:', error);
+      });
 
     (async () => {
       try {
