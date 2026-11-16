@@ -236,7 +236,7 @@ export default function App() {
     const unsubscribeMissedCalls = onSnapshot(missedCallsQuery, snapshot => {
       snapshot.docs.forEach(callSnapshot => {
         const data = callSnapshot.data();
-        if (data.historyVersion !== 2 || data.answeredAt || data.receiverHistorySaved) return;
+        if (data.historyVersion !== 2 || data.receiverHistorySaved) return;
 
         void (async () => {
           try {
@@ -246,8 +246,12 @@ export default function App() {
             const callerLabel = typeof username === 'string' && username.trim()
               ? '@' + username.replace(/^@/, '')
               : 'Dcalls user';
-            const startedAt = data.createdAt?.toDate?.() || new Date();
+            const wasAnswered = Boolean(data.answeredAt);
+            const startedAt = data.answeredAt?.toDate?.() || data.createdAt?.toDate?.() || new Date();
             const endedAt = data.endedAt?.toDate?.() || new Date();
+            const duration = wasAnswered
+              ? Math.max(0, Math.floor((endedAt.getTime() - startedAt.getTime()) / 1000))
+              : 0;
 
             await saveCallHistory({
               userId: user.uid,
@@ -256,10 +260,10 @@ export default function App() {
               contactName: callerLabel,
               type: data.type === 'video' ? 'video' : 'voice',
               direction: 'incoming',
-              status: 'missed',
+              status: wasAnswered ? 'completed' : 'missed',
               startedAt,
               endedAt,
-              duration: 0,
+              duration,
             });
             await updateDoc(doc(db, 'calls', callSnapshot.id), { receiverHistorySaved: true });
           } catch (error) {
