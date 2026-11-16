@@ -460,6 +460,10 @@ export class WebRTCService {
     receiverId: string,
     type: 'voice' | 'video'
   ) {
+    if (callerId === receiverId) {
+      throw new Error('You cannot call your own Dcalls account.');
+    }
+
     if (!this.pc) {
       throw new Error(
         'Peer connection not initialized. Call startLocalStream first.'
