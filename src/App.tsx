@@ -35,6 +35,7 @@ import { openMarketing } from './config/urls';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { startForegroundMessageListener } from './services/notificationService';
 import { FeatureErrorBoundary } from './components/FeatureErrorBoundary';
+import { saveCallHistory } from './services/callHistoryService';
 
 export default function App() {
   const [user, setUser] = useState<UnifiedUser | null>(null);
@@ -222,9 +223,56 @@ export default function App() {
       setCalls(callData);
     });
 
+    // Recover missed calls for this receiver, including calls that ended while
+    // Dcalls was closed. Only process call documents created by the new
+    // versioned call flow; legacy documents cannot reliably distinguish missed
+    // calls from completed calls.
+    const missedCallsQuery = query(
+      callsRef,
+      where('receiverId', '==', user.uid),
+      where('status', '==', 'ended'),
+      limit(50)
+    );
+    const unsubscribeMissedCalls = onSnapshot(missedCallsQuery, snapshot => {
+      snapshot.docs.forEach(callSnapshot => {
+        const data = callSnapshot.data();
+        if (data.historyVersion !== 2 || data.answeredAt || data.receiverHistorySaved) return;
+
+        void (async () => {
+          try {
+            const callerId = data.callerId as string;
+            const callerSnapshot = await getDoc(doc(db, 'users', callerId));
+            const username = callerSnapshot.data()?.username;
+            const callerLabel = typeof username === 'string' && username.trim()
+              ? '@' + username.replace(/^@/, '')
+              : 'Dcalls user';
+            const startedAt = data.createdAt?.toDate?.() || new Date();
+            const endedAt = data.endedAt?.toDate?.() || new Date();
+
+            await saveCallHistory({
+              userId: user.uid,
+              callId: callSnapshot.id,
+              otherUserId: callerId,
+              contactName: callerLabel,
+              type: data.type === 'video' ? 'video' : 'voice',
+              direction: 'incoming',
+              status: 'missed',
+              startedAt,
+              endedAt,
+              duration: 0,
+            });
+            await updateDoc(doc(db, 'calls', callSnapshot.id), { receiverHistorySaved: true });
+          } catch (error) {
+            console.error('[CallHistory] Failed to recover missed incoming call:', error);
+          }
+        })();
+      });
+    });
+
     return () => {
       unsubscribeChats();
       unsubscribeCalls();
+      unsubscribeMissedCalls();
     };
   }, [user, isRegistered]);
 
