@@ -393,6 +393,12 @@ export default function App() {
       }
       if (abortController.signal.aborted) return;
 
+      // Match WhatsApp's self-call prevention: never open a call with this account.
+      if (!auth.currentUser || contactId === auth.currentUser.uid) {
+        console.warn('[Call] Blocked attempt to call the currently signed-in user.');
+        return;
+      }
+
       console.log(`[Call] Starting ${type} call to ${contactId} (${contact.displayName})`);
       setActiveCall({
         type,
