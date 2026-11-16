@@ -777,6 +777,7 @@ export class WebRTCService {
 
     await updateDoc(callDoc, {
       status: 'active',
+      answeredAt: serverTimestamp(),
     });
 
     console.log(
