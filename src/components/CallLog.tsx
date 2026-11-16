@@ -61,21 +61,21 @@ export const CallLog: React.FC<CallLogProps> = ({ calls }) => {
     const fetchNames = async () => {
       const newNames: Record<string, string> = { ...participantNames };
       let changed = false;
-      const otherIds = [...new Set(calls.map(call => call.contactId || call.participants.find(p => p !== auth.currentUser?.uid)).filter((id): id is string => Boolean(id)))];
+      const otherIds = [...new Set(calls.map(call => call.contactId && call.contactId !== 'unknown' ? call.contactId : call.participants.find(p => p !== auth.currentUser?.uid)).filter((id): id is string => Boolean(id) && id !== 'unknown'))];
 
       for (const otherId of otherIds) {
-        if (savedContactNames[otherId] || newNames[otherId]) continue;
+        if (savedContactNames[otherId] || (newNames[otherId] && newNames[otherId] !== 'Loading...')) continue;
         try {
           const userDoc = await getDoc(doc(db, 'users', otherId));
-          if (userDoc.exists()) {
-            // Do not reveal another person's display name unless this user
-            // has saved them as a contact. Username is the public fallback.
-            const username = userDoc.data().username;
-            newNames[otherId] = typeof username === 'string' && username.trim() ? '@' + username.replace(/^@/, '') : 'Dcalls user';
-            changed = true;
-          }
+          const username = userDoc.exists() ? userDoc.data().username : null;
+          // Do not reveal another person's display name unless this user
+          // has saved them as a contact. Username is the public fallback.
+          newNames[otherId] = typeof username === 'string' && username.trim() ? '@' + username.replace(/^@/, '') : 'Dcalls user';
+          changed = true;
         } catch (error) {
           console.error('Error fetching call participant username:', error);
+          newNames[otherId] = 'Dcalls user';
+          changed = true;
         }
       }
       if (!cancelled && changed) setParticipantNames(newNames);
@@ -189,7 +189,7 @@ export const CallLog: React.FC<CallLogProps> = ({ calls }) => {
       </div>
       {filteredCalls.map((call, index) => {
         const recording = recordings.find(r => r.callId === call.id);
-        const otherId = call.contactId || call.participants.find(p => p !== auth.currentUser?.uid);
+        const otherId = call.contactId && call.contactId !== 'unknown' ? call.contactId : call.participants.find(p => p !== auth.currentUser?.uid);
         const contactName = otherId ? savedContactNames[otherId] || participantNames[otherId] || 'Loading...' : 'Dcalls user';
         const isIncoming = call.direction === 'incoming';
         
