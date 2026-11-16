@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { doc, getDoc, setDoc, collection, query, where, onSnapshot, orderBy, addDoc, serverTimestamp, limit, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, getDocs, setDoc, collection, query, where, onSnapshot, orderBy, addDoc, serverTimestamp, limit, updateDoc } from 'firebase/firestore';
 import { db, auth } from './firebase';
 import { handleFirestoreError, OperationType } from './utils/firestoreErrorHandler';
 import { databaseService } from './services/databaseService';
@@ -299,12 +299,23 @@ export default function App() {
         // Create a unique fetch promise
         const fetchPromise = (async () => {
           try {
-            const callerDoc = await getDoc(doc(db, 'users', callData.callerId));
+            const [callerDoc, savedContactSnapshot] = await Promise.all([
+              getDoc(doc(db, 'users', callData.callerId)),
+              getDocs(query(
+                collection(db, 'users', user.uid, 'contacts'),
+                where('uid', '==', callData.callerId),
+                limit(1)
+              ))
+            ]);
             const callerData = callerDoc.data();
+            const savedContact = savedContactSnapshot.docs[0]?.data();
+            const usernameLabel = typeof callerData?.username === 'string' && callerData.username.trim()
+              ? '@' + callerData.username.replace(/^@/, '')
+              : 'Dcalls user';
             return {
               id: callId,
               ...callData,
-              callerName: callerData?.displayName || 'Unknown Caller',
+              callerName: savedContact?.customName || savedContact?.displayName || usernameLabel,
               callerPhoto: callerData?.photoURL
             };
           } catch (error) {
