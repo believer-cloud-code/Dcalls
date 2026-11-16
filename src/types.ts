@@ -39,8 +39,11 @@ export interface Message {
 export interface CallRecord {
   id: string;
   participants: string[];
+  contactId?: string;
+  contactName?: string;
   startTime: Timestamp;
   endTime?: Timestamp;
+  duration?: number;
   type: 'voice' | 'video';
   status: 'missed' | 'completed' | 'ongoing';
   direction?: 'incoming' | 'outgoing';
