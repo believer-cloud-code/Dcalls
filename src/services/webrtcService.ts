@@ -488,6 +488,7 @@ export class WebRTCService {
       receiverId,
       type,
       status: 'ringing',
+      historyVersion: 2,
       createdAt: serverTimestamp(),
     });
 
