@@ -218,7 +218,7 @@ export const CallLog: React.FC<CallLogProps> = ({ calls }) => {
                   "font-medium truncate",
                   call.status === 'missed' ? "text-red-400" : "text-white"
                 )}>
-                  {call.status === 'missed' ? 'Missed Call' : contactName}
+                  {contactName}
                 </h3>
                 <span className="text-[10px] text-gray-500 uppercase tracking-tighter">
                   {format(call.startTime.toDate(), 'MMM d, HH:mm')}
