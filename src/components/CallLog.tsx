@@ -189,7 +189,7 @@ export const CallLog: React.FC<CallLogProps> = ({ calls }) => {
       </div>
       {filteredCalls.map((call, index) => {
         const recording = recordings.find(r => r.callId === call.id);
-        const otherId = call.contactId && call.contactId !== 'unknown' ? call.contactId : call.participants.find(p => p !== auth.currentUser?.uid);
+        const otherId = call.contactId && call.contactId !== 'unknown' ? call.contactId : call.participants.find(p => p !== auth.currentUser?.uid && p !== 'unknown');
         const contactName = otherId ? savedContactNames[otherId] || participantNames[otherId] || 'Loading...' : 'Dcalls user';
         const isIncoming = call.direction === 'incoming';
         
