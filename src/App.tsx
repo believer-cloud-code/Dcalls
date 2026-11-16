@@ -502,7 +502,7 @@ export default function App() {
           )}
         </AnimatePresence>
         <button type="button" onClick={() => openMarketing()} className="absolute bottom-12 text-[10px] text-gray-500 font-bold uppercase tracking-[0.35em] z-10 hover:text-purple-400 transition-colors">
-          Learn more at Dcalls.com
+          Dcalls website coming soon
         </button>
       </div>
     );

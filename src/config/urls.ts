@@ -20,36 +20,23 @@ export function getAppUrl(): string {
   return 'http://localhost:3000';
 }
 
-/** Marketing / landing site (Dcalls web folder) */
-export function getMarketingUrl(): string {
-  const fromEnv = import.meta.env.VITE_MARKETING_URL as string | undefined;
-  if (fromEnv) return trimSlash(fromEnv);
 
-  if (typeof window !== 'undefined') {
-    const { protocol, hostname, port } = window.location;
-    if (isDevHost(hostname)) {
-      return `${protocol}//${hostname}${port ? `:${port}` : ''}/welcome.html`;
-    }
-    return 'https://dcalls.com';
-  }
-
-  return 'https://dcalls.com';
+/** URLs for the future separately hosted Dcalls website. */
+export function getMarketingUrl(): string | null {
+  const value = import.meta.env.VITE_MARKETING_URL as string | undefined;
+  return value?.trim() ? trimSlash(value.trim()) : null;
 }
 
-export function getHelpUrl(): string {
-  const fromEnv = import.meta.env.VITE_HELP_URL as string | undefined;
-  if (fromEnv) return trimSlash(fromEnv);
-
-  if (typeof window !== 'undefined') {
-    return `${trimSlash(window.location.origin)}/help.html`;
-  }
-
-  return `${getMarketingUrl()}/help.html`;
+export function getHelpUrl(): string | null {
+  const value = import.meta.env.VITE_HELP_URL as string | undefined;
+  return value?.trim() ? trimSlash(value.trim()) : null;
 }
 
-export function getPrivacyUrl(): string {
-  return (import.meta.env.VITE_PRIVACY_URL as string) || 'https://dcalls.com/privacy';
+export function getPrivacyUrl(): string | null {
+  const value = import.meta.env.VITE_PRIVACY_URL as string | undefined;
+  return value?.trim() ? trimSlash(value.trim()) : null;
 }
+
 
 export function openApp(path = '') {
   const base = getAppUrl();
@@ -57,12 +44,30 @@ export function openApp(path = '') {
   window.location.href = url;
 }
 
+
 export function openMarketing(path = '') {
   const base = getMarketingUrl();
-  const url = path ? `${base}${path.startsWith('/') ? path : `/${path}`}` : base;
+
+  if (!base) {
+    window.alert('The Dcalls website is coming soon.');
+    return;
+  }
+
+  const url = path
+    ? `${base}${path.startsWith('/') ? path : `/${path}`}`
+    : base;
+
   window.open(url, '_blank', 'noopener,noreferrer');
 }
 
 export function openHelp() {
-  window.open(getHelpUrl(), '_blank', 'noopener,noreferrer');
+  const base = getHelpUrl();
+
+  if (!base) {
+    window.alert('The Dcalls Help Center will be available when the Dcalls website is hosted.');
+    return;
+  }
+
+  window.open(base, '_blank', 'noopener,noreferrer');
 }
+

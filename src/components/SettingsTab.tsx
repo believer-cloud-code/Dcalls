@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+
+import { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { User, Bell, Shield, HelpCircle, LogOut, ChevronRight, Moon, Languages, X, Camera, Check, Lock, Eye, Volume2, Palette, Globe, ArrowLeft, Smile, Zap, MessageSquare } from 'lucide-react';
 import { DcallsIcon } from './DcallsIcon';
@@ -644,13 +645,21 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ user }) => {
                     icon={<MessageSquare size={20} />}
                     label="Contact Us"
                     desc="Send a message to our support team"
-                    onClick={() => window.location.href = 'mailto:support@dcalls.com'}
+                    onClick={() => window.location.href = 'mailto:dcallsapp@gmail.com'}
                   />
                   <SettingItem
                     icon={<Shield size={20} />}
                     label="Privacy Policy"
                     desc="Read our terms and privacy policy"
-                    onClick={() => window.open(getPrivacyUrl(), '_blank', 'noopener,noreferrer')}
+                    onClick={() => {
+                      const privacyUrl = getPrivacyUrl();
+
+                      if (privacyUrl) {
+                        window.open(privacyUrl, '_blank', 'noopener,noreferrer');
+                      } else {
+                        window.alert('The Dcalls Privacy Policy will be available when the Dcalls website is hosted.');
+                      }
+                    }}
                   />
                   <div className="p-4 bg-white/5 rounded-2xl border border-white/10">
                     <p className="text-[10px] text-gray-500 leading-relaxed text-center">
@@ -735,3 +744,4 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ user }) => {
     </div>
   );
 };
+

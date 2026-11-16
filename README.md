@@ -210,22 +210,11 @@ http://localhost:3000
 
 ---
 
-## 🌐 Marketing Website
+### Dcalls website
 
-The repository includes a standalone marketing website.
+The public-facing Dcalls website is planned as a separate project and is not included in this application repository.
 
-Location:
-
-```text
-Dcalls web/
-```
-
-Landing page:
-
-```text
-/welcome.html
-```
-
+The app's marketing, Help Center, and Privacy Policy links remain placeholders until the website is hosted. Configure `VITE_MARKETING_URL`, `VITE_HELP_URL`, and `VITE_PRIVACY_URL` when the corresponding pages become available.
 The **Get Started** button launches the main React application.
 
 ---
