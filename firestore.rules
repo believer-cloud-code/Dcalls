@@ -109,12 +109,14 @@ service cloud.firestore {
       allow read: if isAuthenticated() &&
         (request.auth.uid == resource.data.callerId ||
          request.auth.uid == resource.data.receiverId);
+      // Only the caller creates a call, and caller/receiver must be different accounts.
       allow create: if isAuthenticated() &&
-        (request.auth.uid == request.resource.data.callerId ||
-         request.auth.uid == request.resource.data.receiverId);
+        request.auth.uid == request.resource.data.callerId &&
+        request.resource.data.callerId != request.resource.data.receiverId;
       allow update: if isAuthenticated() &&
         (request.auth.uid == resource.data.callerId ||
-         request.auth.uid == resource.data.receiverId);
+         request.auth.uid == resource.data.receiverId) &&
+        request.resource.data.callerId != request.resource.data.receiverId;
 
       match /offer/{docId} {
         allow read, write: if isAuthenticated() &&
