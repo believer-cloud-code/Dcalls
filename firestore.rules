@@ -76,12 +76,13 @@ service cloud.firestore {
       }
 
       match /calls/{callId} {
-        allow read, create, update: if isOwner(userId);
+        allow read, create, update, delete: if isOwner(userId);
       }
 
       match /recordings/{recordingId} {
         allow read: if isOwner(userId);
         allow create, update: if isOwner(userId) && isValidRecording(request.resource.data);
+        allow delete: if isOwner(userId);
       }
 
       match /ai_memory/{memoryId} {
