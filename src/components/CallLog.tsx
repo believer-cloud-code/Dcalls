@@ -19,6 +19,9 @@ interface CallLogProps {
 
 export const CallLog: React.FC<CallLogProps> = ({ calls }) => {
   const [selectedSummary, setSelectedSummary] = useState<Recording | null>(null);
+  const [selectedCall, setSelectedCall] = useState<CallRecord | null>(null);
+  const [savedContactNames, setSavedContactNames] = useState<Record<string, string>>({});
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [recordings, setRecordings] = useState<Recording[]>([]);
   const [participantNames, setParticipantNames] = useState<Record<string, string>>({});
   const [filter, setFilter] = useState<'all' | 'missed' | 'incoming' | 'outgoing'>('all');
@@ -27,39 +30,59 @@ export const CallLog: React.FC<CallLogProps> = ({ calls }) => {
   const [deletingCall, setDeletingCall] = useState(false);
 
   useEffect(() => {
-    // Simulate asynchronous initialization of filters/preferences
-    const init = async () => {
-      await new Promise(resolve => setTimeout(resolve, 600));
-      setIsInitializing(false);
-    };
-    init();
+    // Load the names saved locally by this user. These take precedence over
+    // public profile names and are never shared with the other participant.
+    const currentUser = auth.currentUser;
+    if (!currentUser) { setIsInitializing(false); return; }
+    const unsubscribe = onSnapshot(
+      collection(db, 'users', currentUser.uid, 'contacts'),
+      snapshot => {
+        const names: Record<string, string> = {};
+        snapshot.docs.forEach(item => {
+          const contact = item.data();
+          if (typeof contact.uid === 'string') {
+            const localName = contact.customName || contact.displayName;
+            if (typeof localName === 'string' && localName.trim()) names[contact.uid] = localName.trim();
+          }
+        });
+        setSavedContactNames(names);
+        setIsInitializing(false);
+      },
+      error => {
+        console.error('Error loading saved contact names:', error);
+        setIsInitializing(false);
+      }
+    );
+    return () => unsubscribe();
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
     const fetchNames = async () => {
       const newNames: Record<string, string> = { ...participantNames };
       let changed = false;
+      const otherIds = [...new Set(calls.map(call => call.contactId || call.participants.find(p => p !== auth.currentUser?.uid)).filter((id): id is string => Boolean(id)))];
 
-      for (const call of calls) {
-        const otherId = call.participants.find(p => p !== auth.currentUser?.uid);
-        if (otherId && !newNames[otherId]) {
+      for (const otherId of otherIds) {
+        if (savedContactNames[otherId] || newNames[otherId]) continue;
+        try {
           const userDoc = await getDoc(doc(db, 'users', otherId));
           if (userDoc.exists()) {
-            newNames[otherId] = userDoc.data().displayName || 'User';
+            // Do not reveal another person's display name unless this user
+            // has saved them as a contact. Username is the public fallback.
+            const username = userDoc.data().username;
+            newNames[otherId] = typeof username === 'string' && username.trim() ? '@' + username.replace(/^@/, '') : 'Dcalls user';
             changed = true;
           }
+        } catch (error) {
+          console.error('Error fetching call participant username:', error);
         }
       }
-
-      if (changed) {
-        setParticipantNames(newNames);
-      }
+      if (!cancelled && changed) setParticipantNames(newNames);
     };
-
-    if (calls.length > 0) {
-      fetchNames();
-    }
-  }, [calls]);
+    if (calls.length > 0) void fetchNames();
+    return () => { cancelled = true; };
+  }, [calls, savedContactNames]);
 
   useEffect(() => {
     if (!auth.currentUser) return;
@@ -89,6 +112,7 @@ export const CallLog: React.FC<CallLogProps> = ({ calls }) => {
     if (!auth.currentUser) return;
     setDeletingCall(true);
     try {
+      setDeleteError(null);
       // Delete the call record
       await deleteDoc(doc(db, 'users', auth.currentUser.uid, 'calls', call.id));
       
@@ -101,6 +125,7 @@ export const CallLog: React.FC<CallLogProps> = ({ calls }) => {
       setCallToDelete(null);
     } catch (error) {
       console.error("Error deleting call:", error);
+      setDeleteError(error instanceof Error ? error.message : 'Could not delete this call. Check your connection and try again.');
     } finally {
       setDeletingCall(false);
     }
@@ -164,8 +189,8 @@ export const CallLog: React.FC<CallLogProps> = ({ calls }) => {
       </div>
       {filteredCalls.map((call, index) => {
         const recording = recordings.find(r => r.callId === call.id);
-        const otherId = call.participants.find(p => p !== auth.currentUser?.uid);
-        const contactName = otherId ? participantNames[otherId] || 'Loading...' : 'User';
+        const otherId = call.contactId || call.participants.find(p => p !== auth.currentUser?.uid);
+        const contactName = otherId ? savedContactNames[otherId] || participantNames[otherId] || 'Loading...' : 'Dcalls user';
         const isIncoming = call.direction === 'incoming';
         
         return (
@@ -225,12 +250,32 @@ export const CallLog: React.FC<CallLogProps> = ({ calls }) => {
               <Trash2 size={18} />
             </button>
             
-            <button className="p-2 hover:bg-white/10 rounded-full transition-colors text-gray-400">
+            <button onClick={() => setSelectedCall(call)} className="p-2 hover:bg-white/10 rounded-full transition-colors text-gray-400" title="Call details" aria-label="Call details">
               <Info size={18} />
             </button>
           </motion.div>
         );
       })}
+
+      {/* Call details */}
+      <AnimatePresence>
+        {selectedCall && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[450] flex items-center justify-center p-6">
+            <motion.div initial={{ scale: 0.95, y: 12 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 12 }} className="w-full max-w-sm bg-[#171717] border border-white/10 rounded-3xl p-6 space-y-5">
+              <div className="flex items-center justify-between"><h3 className="text-lg font-bold text-white">Call details</h3><button onClick={() => setSelectedCall(null)} className="p-2 rounded-xl text-gray-400 hover:bg-white/10" aria-label="Close call details"><X size={18} /></button></div>
+              <div className="space-y-3 text-sm">
+                <div className="flex justify-between gap-4"><span className="text-gray-500">Type</span><span className="text-white capitalize">{selectedCall.type}</span></div>
+                <div className="flex justify-between gap-4"><span className="text-gray-500">Direction</span><span className="text-white capitalize">{selectedCall.direction || 'Unknown'}</span></div>
+                <div className="flex justify-between gap-4"><span className="text-gray-500">Status</span><span className={selectedCall.status === 'missed' ? 'text-red-400 capitalize' : 'text-white capitalize'}>{selectedCall.status}</span></div>
+                <div className="flex justify-between gap-4"><span className="text-gray-500">Date</span><span className="text-white">{format(selectedCall.startTime.toDate(), 'MMM d, yyyy HH:mm')}</span></div>
+                <div className="flex justify-between gap-4"><span className="text-gray-500">Duration</span><span className="text-white">{Math.floor((selectedCall.duration || 0) / 60)}m {(selectedCall.duration || 0) % 60}s</span></div>
+                <div className="flex justify-between gap-4"><span className="text-gray-500">Call ID</span><span className="text-gray-400 text-xs break-all text-right">{selectedCall.id}</span></div>
+              </div>
+              <button onClick={() => setSelectedCall(null)} className="w-full py-3 bg-white/10 hover:bg-white/15 rounded-xl text-white text-sm font-semibold">Close</button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Summary Modal */}
       <AnimatePresence>
@@ -333,6 +378,7 @@ export const CallLog: React.FC<CallLogProps> = ({ calls }) => {
                   <p className="text-sm text-gray-400">
                     Are you sure you want to delete this {callToDelete.type} call from {format(callToDelete.startTime.toDate(), 'MMM d')}? {callToDelete.status === 'missed' ? 'This was a missed call.' : ''} This action cannot be undone.
                   </p>
+                  {deleteError && <p role="alert" className="text-xs text-red-400">{deleteError}</p>}
                 </div>
               </div>
               
