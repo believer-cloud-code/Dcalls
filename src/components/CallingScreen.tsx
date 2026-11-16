@@ -4,7 +4,7 @@ import { PhoneOff, Mic, MicOff, Volume2, VolumeX, Languages, X, Maximize2, Circl
 import { DcallsIcon } from './DcallsIcon';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import { collection, addDoc, serverTimestamp, query, orderBy, limit, onSnapshot, doc, setDoc, getDoc, updateDoc, Timestamp } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, query, orderBy, limit, onSnapshot, doc, setDoc, getDoc } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 import { CryptoService } from '../services/cryptoService';
 import { DCALLS_LANGUAGES } from '../config/languages';
@@ -320,7 +320,12 @@ export const CallingScreen: React.FC<CallingScreenProps> = ({ onEnd, type, conta
         // Set up error handler
         webrtc.setOnError((error) => {
           console.error("Call error:", error);
-          // Delay error message display by 60 seconds to allow connection attempts
+          if (error === 'Call not answered') {
+            setErrorMessage(error);
+            setTimeout(() => { void handleEndCall(); }, 2000);
+            return;
+          }
+          // Give transient network failures time to recover before ending.
           setTimeout(() => {
             setErrorMessage(error);
             setTimeout(() => {
