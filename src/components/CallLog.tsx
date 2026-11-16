@@ -82,7 +82,7 @@ export const CallLog: React.FC<CallLogProps> = ({ calls }) => {
     };
     if (calls.length > 0) void fetchNames();
     return () => { cancelled = true; };
-  }, [calls, savedContactNames]);
+  }, [calls, savedContactNames, participantNames]);
 
   useEffect(() => {
     if (!auth.currentUser) return;
