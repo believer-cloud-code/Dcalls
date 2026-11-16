@@ -231,7 +231,7 @@ export default function App() {
       callsRef,
       where('receiverId', '==', user.uid),
       where('status', '==', 'ended'),
-      limit(50)
+      orderBy('createdAt', 'desc')
     );
     const unsubscribeMissedCalls = onSnapshot(missedCallsQuery, snapshot => {
       snapshot.docs.forEach(callSnapshot => {
