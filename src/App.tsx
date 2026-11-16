@@ -228,7 +228,7 @@ export default function App() {
     // versioned call flow; legacy documents cannot reliably distinguish missed
     // calls from completed calls.
     const missedCallsQuery = query(
-      callsRef,
+      collection(db, 'calls'),
       where('receiverId', '==', user.uid),
       where('status', '==', 'ended'),
       orderBy('createdAt', 'desc')
