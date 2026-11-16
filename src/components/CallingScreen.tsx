@@ -324,7 +324,7 @@ export const CallingScreen: React.FC<CallingScreenProps> = ({ onEnd, type, conta
           setTimeout(() => {
             setErrorMessage(error);
             setTimeout(() => {
-              onEnd();
+              void handleEndCall();
             }, 2000);
           }, 60000);
         });
