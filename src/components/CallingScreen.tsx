@@ -191,7 +191,7 @@ export const CallingScreen: React.FC<CallingScreenProps> = ({ onEnd, type, conta
     callEndHandledRef.current = true;
 
     const currentUser = auth.currentUser;
-    const callId = callIdRef.current;
+    const callId = callIdRef.current || webrtc.getCallId();
     const endedAt = new Date();
     const connectedAt = callStartedAtRef.current;
     const status = connectedAt ? 'completed' : 'missed';
