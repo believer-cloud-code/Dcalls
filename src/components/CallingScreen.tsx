@@ -4,7 +4,7 @@ import { PhoneOff, Mic, MicOff, Volume2, VolumeX, Languages, X, Maximize2, Circl
 import { DcallsIcon } from './DcallsIcon';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import { collection, addDoc, serverTimestamp, query, orderBy, limit, onSnapshot, doc, setDoc, getDoc } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, query, orderBy, limit, onSnapshot, doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 import { CryptoService } from '../services/cryptoService';
 import { DCALLS_LANGUAGES } from '../config/languages';
@@ -226,6 +226,9 @@ export const CallingScreen: React.FC<CallingScreenProps> = ({ onEnd, type, conta
             duration,
           });
           console.info('[CallingScreen] Call history saved:', callId, status);
+          if (incomingCallId) {
+            await updateDoc(doc(db, 'calls', callId), { receiverHistorySaved: true });
+          }
         } catch (error) {
           console.error('[CallingScreen] Failed to save call history:', error);
         }
