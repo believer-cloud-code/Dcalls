@@ -4,7 +4,7 @@ import { PhoneOff, Mic, MicOff, Volume2, VolumeX, Languages, X, Maximize2, Circl
 import { DcallsIcon } from './DcallsIcon';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import { collection, addDoc, serverTimestamp, query, orderBy, limit, onSnapshot, doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, query, orderBy, limit, onSnapshot, doc, setDoc, getDoc, updateDoc, Timestamp } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 import { CryptoService } from '../services/cryptoService';
 import { DCALLS_LANGUAGES } from '../config/languages';
@@ -95,6 +95,7 @@ export const CallingScreen: React.FC<CallingScreenProps> = ({ onEnd, type, conta
   const webrtc = WebRTCService.getInstance();
   const unsubscribersRef = useRef<Array<() => void>>([]);
   const callTranscriptRef = useRef<string[]>([]);
+  const callStartedAtRef = useRef<Date | null>(null);
   const recognitionRef = useRef<any>(null);
   const isTranslationOnRef = useRef(isTranslationOn);
   const [liveCaptionOriginal, setLiveCaptionOriginal] = useState('');
@@ -182,45 +183,73 @@ export const CallingScreen: React.FC<CallingScreenProps> = ({ onEnd, type, conta
   }, [callStatus]);
 
   const handleEndCall = async () => {
+    const currentUser = auth.currentUser;
+    let savedCallId: string | null = null;
+
     try {
-      await webrtc.endCall();
+      // Ending the WebRTC session and saving call history are independent
+      // of Damai's optional AI summary.
+      try {
+        await webrtc.endCall();
+      } catch (error) {
+        console.error('Error ending WebRTC session:', error);
+      }
       setCallStatus('ended');
 
-      if (auth.currentUser) {
-        const transcriptText = callTranscriptRef.current.length > 0
-          ? callTranscriptRef.current.join('\n')
-          : `A ${type} call between ${auth.currentUser.displayName || 'User'} and ${contactName} lasting ${formatTime(callDuration)}. No live transcript was captured.`;
+      if (currentUser) {
+        const endedAt = new Date();
+        const startedAt = callStartedAtRef.current
+          ?? new Date(endedAt.getTime() - callDuration * 1000);
+        const callPath = `users/${currentUser.uid}/calls`;
+        const callData = {
+          contactName,
+          contactId: contactId || 'unknown',
+          type,
+          status: 'completed',
+          direction: incomingCallId ? 'incoming' : 'outgoing',
+          callerId: incomingCallId ? (contactId || 'unknown') : currentUser.uid,
+          startTime: Timestamp.fromDate(startedAt),
+          endTime: Timestamp.fromDate(endedAt),
+          duration: callDuration,
+          participants: [currentUser.uid, contactId || 'unknown'],
+          summary: `Call with ${contactName} completed.`
+        };
 
-        getFastSummary(transcriptText).then(async (aiSummary) => {
-          if (auth.currentUser) {
-            const callData = {
-              contactName,
-              contactId: contactId || 'unknown',
-              type,
-              status: 'completed',
-              direction: incomingCallId ? 'incoming' : 'outgoing',
-              callerId: incomingCallId ? (contactId || 'unknown') : auth.currentUser.uid,
-              startTime: serverTimestamp(),
+        try {
+          const savedCall = await databaseService.addDocument(callPath, callData);
+          savedCallId = savedCall.id;
+          console.info('[CallingScreen] Call history saved:', savedCallId);
+        } catch (error) {
+          console.error('[CallingScreen] Failed to save call history:', error);
+        }
+
+        // Damai summarisation runs only after the call record has been saved.
+        // A summary failure must never prevent the call from appearing in history.
+        if (savedCallId) {
+          const transcriptText = callTranscriptRef.current.length > 0
+            ? callTranscriptRef.current.join('\n')
+            : `A ${type} call between ${currentUser.displayName || 'User'} and ${contactName} lasting ${formatTime(callDuration)}. No live transcript was captured.`;
+
+          const callId = savedCallId;
+          void getFastSummary(transcriptText).then(async (aiSummary) => {
+            if (!aiSummary) return;
+
+            await databaseService.updateDocument(callPath, callId, { summary: aiSummary });
+            await addDoc(collection(db, 'users', currentUser.uid, 'recordings'), {
+              callId,
+              ownerId: currentUser.uid,
               duration: callDuration,
-              participants: [auth.currentUser.uid, contactId || 'unknown'],
-              summary: aiSummary || `Call with ${contactName} completed.`
-            };
-            await databaseService.addDocument(`users/${auth.currentUser.uid}/calls`, callData);
-            if (aiSummary) {
-              await addDoc(collection(db, 'users', auth.currentUser.uid, 'recordings'), {
-                callId: 'call_' + Date.now(),
-                ownerId: auth.currentUser.uid,
-                duration: callDuration,
-                timestamp: serverTimestamp(),
-                url: '#',
-                summary: aiSummary
-              });
-            }
-          }
-        }).catch(err => console.error("Background summary failed", err));
+              timestamp: serverTimestamp(),
+              url: '#',
+              summary: aiSummary
+            });
+          }).catch(error => {
+            console.error('[CallingScreen] Background call summary failed:', error);
+          });
+        }
       }
-    } catch (e) {
-      console.error("Error ending call:", e);
+    } catch (error) {
+      console.error('[CallingScreen] Unexpected call-ending error:', error);
     } finally {
       onEnd();
     }
@@ -316,6 +345,7 @@ export const CallingScreen: React.FC<CallingScreenProps> = ({ onEnd, type, conta
         });
 
         webrtc.setOnConnected(() => {
+          callStartedAtRef.current = new Date();
           setCallStatus('connected');
         });
 
