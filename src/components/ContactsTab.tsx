@@ -78,8 +78,14 @@ export const ContactsTab: React.FC<ContactsTabProps> = ({ onCall, onMessage, onA
                   <div className="flex-1 min-w-0"><h4 className="text-white font-semibold truncate">{localName}</h4><p className="text-gray-500 text-xs truncate">@{contact.username || 'legacy contact'}</p></div>
                   <div className="flex items-center gap-1">
                     <button onClick={() => onMessage(contact)} className="p-2.5 text-gray-400 hover:text-indigo-400 rounded-xl" aria-label="Message"><MessageSquare size={20} /></button>
-                    <button onClick={() => onCall(contact, 'voice')} className="p-2.5 text-gray-400 hover:text-emerald-400 rounded-xl" aria-label="Voice call"><Phone size={20} /></button>
-                    <button onClick={() => onCall(contact, 'video')} className="p-2.5 text-gray-400 hover:text-indigo-400 rounded-xl" aria-label="Video call"><Video size={20} /></button>
+                    {contact.uid !== auth.currentUser?.uid ? (
+                      <>
+                        <button onClick={() => onCall(contact, 'voice')} className="p-2.5 text-gray-400 hover:text-emerald-400 rounded-xl" aria-label="Voice call"><Phone size={20} /></button>
+                        <button onClick={() => onCall(contact, 'video')} className="p-2.5 text-gray-400 hover:text-indigo-400 rounded-xl" aria-label="Video call"><Video size={20} /></button>
+                      </>
+                    ) : (
+                      <span className="px-2 text-[10px] font-semibold text-gray-500">You</span>
+                    )}
                     <button onClick={() => setContactToDelete(contact)} className="p-2.5 text-gray-600 hover:text-red-400 rounded-xl" title="Delete contact"><Trash2 size={20} /></button>
                   </div>
                 </motion.div>
