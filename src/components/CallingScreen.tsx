@@ -40,7 +40,6 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
   throw new Error(JSON.stringify(errInfo));
 }
 
-import { databaseService } from '../services/databaseService';
 import { saveCallHistory } from '../services/callHistoryService';
 import { WebRTCService } from '../services/webrtcService';
 import { getFastSummary } from '../services/gemini';
