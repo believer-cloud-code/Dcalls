@@ -362,6 +362,10 @@ export class WebRTCService {
     this.onConnectedCallback = callback;
   }
 
+  getCallId(): string | null {
+    return this.callId;
+  }
+
   getConnectionState(): RTCPeerConnectionState | null {
     return this.pc?.connectionState ?? null;
   }
