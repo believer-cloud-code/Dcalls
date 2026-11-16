@@ -41,6 +41,7 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
 }
 
 import { databaseService } from '../services/databaseService';
+import { saveCallHistory } from '../services/callHistoryService';
 import { WebRTCService } from '../services/webrtcService';
 import { getFastSummary } from '../services/gemini';
 import { translateUtterance, speechLangForCode } from '../services/translationService';
@@ -96,6 +97,9 @@ export const CallingScreen: React.FC<CallingScreenProps> = ({ onEnd, type, conta
   const unsubscribersRef = useRef<Array<() => void>>([]);
   const callTranscriptRef = useRef<string[]>([]);
   const callStartedAtRef = useRef<Date | null>(null);
+  const callInitiatedAtRef = useRef<Date>(new Date());
+  const callIdRef = useRef<string | null>(incomingCallId || null);
+  const callEndHandledRef = useRef(false);
   const recognitionRef = useRef<any>(null);
   const isTranslationOnRef = useRef(isTranslationOn);
   const [liveCaptionOriginal, setLiveCaptionOriginal] = useState('');
@@ -113,6 +117,7 @@ export const CallingScreen: React.FC<CallingScreenProps> = ({ onEnd, type, conta
         const hasVideo = remoteStream.getVideoTracks().some(track => track.enabled && track.readyState === 'live');
         setIsRemoteVideoActive(hasVideo);
         if (remoteStream.getTracks().some(track => track.readyState === 'live')) {
+          if (!callStartedAtRef.current) callStartedAtRef.current = new Date();
           setCallStatus('connected');
         }
       };
@@ -183,71 +188,51 @@ export const CallingScreen: React.FC<CallingScreenProps> = ({ onEnd, type, conta
   }, [callStatus]);
 
   const handleEndCall = async () => {
+    if (callEndHandledRef.current) return;
+    callEndHandledRef.current = true;
+
     const currentUser = auth.currentUser;
-    let savedCallId: string | null = null;
+    const callId = callIdRef.current;
+    const endedAt = new Date();
+    const connectedAt = callStartedAtRef.current;
+    const status = connectedAt ? 'completed' : 'missed';
+    const duration = connectedAt
+      ? Math.max(callDuration, Math.floor((endedAt.getTime() - connectedAt.getTime()) / 1000))
+      : 0;
+    const startedAt = connectedAt || callInitiatedAtRef.current;
 
     try {
-      // Ending the WebRTC session and saving call history are independent
-      // of Damai's optional AI summary.
+      // Stop local media and publish the ended state. Call history is saved
+      // independently, using the stable WebRTC call ID to prevent duplicates.
       try {
         await webrtc.endCall();
       } catch (error) {
-        console.error('Error ending WebRTC session:', error);
+        console.error('[CallingScreen] Error ending WebRTC session:', error);
       }
       setCallStatus('ended');
 
-      if (currentUser) {
-        const endedAt = new Date();
-        const startedAt = callStartedAtRef.current
-          ?? new Date(endedAt.getTime() - callDuration * 1000);
-        const callPath = `users/${currentUser.uid}/calls`;
-        const callData = {
-          contactName,
-          contactId: contactId || 'unknown',
-          type,
-          status: 'completed',
-          direction: incomingCallId ? 'incoming' : 'outgoing',
-          callerId: incomingCallId ? (contactId || 'unknown') : currentUser.uid,
-          startTime: Timestamp.fromDate(startedAt),
-          endTime: Timestamp.fromDate(endedAt),
-          duration: callDuration,
-          participants: [currentUser.uid, contactId || 'unknown'],
-          summary: `Call with ${contactName} completed.`
-        };
-
+      if (currentUser && callId && contactId && currentUser.uid !== contactId) {
         try {
-          const savedCall = await databaseService.addDocument(callPath, callData);
-          savedCallId = savedCall.id;
-          console.info('[CallingScreen] Call history saved:', savedCallId);
+          await saveCallHistory({
+            userId: currentUser.uid,
+            callId,
+            otherUserId: contactId,
+            contactName,
+            type,
+            direction: incomingCallId ? 'incoming' : 'outgoing',
+            status,
+            startedAt,
+            endedAt,
+            duration,
+          });
+          console.info('[CallingScreen] Call history saved:', callId, status);
         } catch (error) {
           console.error('[CallingScreen] Failed to save call history:', error);
         }
-
-        // Damai summarisation runs only after the call record has been saved.
-        // A summary failure must never prevent the call from appearing in history.
-        if (savedCallId) {
-          const transcriptText = callTranscriptRef.current.length > 0
-            ? callTranscriptRef.current.join('\n')
-            : `A ${type} call between ${currentUser.displayName || 'User'} and ${contactName} lasting ${formatTime(callDuration)}. No live transcript was captured.`;
-
-          const callId = savedCallId;
-          void getFastSummary(transcriptText).then(async (aiSummary) => {
-            if (!aiSummary) return;
-
-            await databaseService.updateDocument(callPath, callId, { summary: aiSummary });
-            await addDoc(collection(db, 'users', currentUser.uid, 'recordings'), {
-              callId,
-              ownerId: currentUser.uid,
-              duration: callDuration,
-              timestamp: serverTimestamp(),
-              url: '#',
-              summary: aiSummary
-            });
-          }).catch(error => {
-            console.error('[CallingScreen] Background call summary failed:', error);
-          });
-        }
       }
+
+      // Automatic Damai summaries are intentionally disabled. Users can
+      // still create a summary manually from the call recording controls.
     } catch (error) {
       console.error('[CallingScreen] Unexpected call-ending error:', error);
     } finally {
@@ -345,7 +330,7 @@ export const CallingScreen: React.FC<CallingScreenProps> = ({ onEnd, type, conta
         });
 
         webrtc.setOnConnected(() => {
-          callStartedAtRef.current = new Date();
+          if (!callStartedAtRef.current) callStartedAtRef.current = new Date();
           setCallStatus('connected');
         });
 
@@ -366,6 +351,7 @@ export const CallingScreen: React.FC<CallingScreenProps> = ({ onEnd, type, conta
         // Create or join the actual call only after media permissions are granted
         if (incomingCallId && auth.currentUser) {
           const result = await webrtc.joinCall(incomingCallId, auth.currentUser.uid);
+          callIdRef.current = incomingCallId;
           if ((result as { error?: string }).error) {
             setErrorMessage('Unable to connect');
             return;
@@ -375,6 +361,7 @@ export const CallingScreen: React.FC<CallingScreenProps> = ({ onEnd, type, conta
           }
         } else if (auth.currentUser && contactId) {
           const result = await webrtc.createCall(auth.currentUser.uid, contactId, type);
+          callIdRef.current = result.callId || null;
           if (result.unsubscribers) {
             unsubscribersRef.current.push(...result.unsubscribers);
           }
@@ -384,7 +371,7 @@ export const CallingScreen: React.FC<CallingScreenProps> = ({ onEnd, type, conta
         }
 
         const unsubEnded = webrtc.onCallEnded(() => {
-          onEnd();
+          void handleEndCall();
         });
         if (unsubEnded) {
           unsubscribersRef.current.push(unsubEnded);
