@@ -351,38 +351,42 @@ class MatrixCryptoService {
         continue;
       }
 
+      const crossSigning = await deviceRegistryService.getPublicCrossSigningKeys(firebaseUid);
+      const attachSignatures = (key: Record<string, unknown>, keyId: string | undefined): Record<string, unknown> => {
+        if (!crossSigning || !keyId) return key;
+        const signatureRoot = crossSigning.signatures[matrixUserId] as Record<string, unknown> | undefined;
+        const signedKey = signatureRoot?.[keyId] as Record<string, unknown> | undefined;
+        const keySignatures = signedKey?.signatures as Record<string, unknown> | undefined;
+        return keySignatures
+          ? { ...key, signatures: { ...(key.signatures as Record<string, unknown> ?? {}), ...keySignatures } }
+          : key;
+      };
+
       const devices = await deviceRegistryService.listPublicDevices(firebaseUid);
       const userDevices: Record<string, unknown> = {};
       for (const device of devices) {
         const keys = device.deviceKeys as Record<string, unknown> | undefined;
         if (!keys) continue;
-        // Do not let a registry document advertise keys for another identity.
         if (keys.user_id !== matrixUserId || keys.device_id !== device.id) continue;
         const requestedDeviceIds = body.device_keys?.[matrixUserId] ?? [];
         if (requestedDeviceIds.length && !requestedDeviceIds.includes(device.id)) continue;
-        userDevices[device.id] = keys;
+        const keyMap = keys.keys as Record<string, string> | undefined;
+        const signingKeyId = keyMap ? Object.keys(keyMap).find((keyId) => keyId.startsWith('ed25519:')) : undefined;
+        userDevices[device.id] = attachSignatures(keys, signingKeyId);
       }
       response.device_keys[matrixUserId] = userDevices;
-      const crossSigning = await deviceRegistryService.getPublicCrossSigningKeys(firebaseUid);
+
       if (crossSigning) {
-        const attachSignatures = (key: Record<string, unknown>): Record<string, unknown> => {
+        const attachCrossSigningSignatures = (key: Record<string, unknown>): Record<string, unknown> => {
           const keyMap = key.keys as Record<string, string> | undefined;
           const keyId = keyMap ? Object.keys(keyMap)[0] : undefined;
-          const signatureRoot = crossSigning.signatures[matrixUserId] as Record<string, unknown> | undefined;
-          const signedKey = keyId && signatureRoot
-            ? signatureRoot[keyId] as Record<string, unknown> | undefined
-            : undefined;
-          const keySignatures = signedKey?.signatures as Record<string, unknown> | undefined;
-          return keySignatures
-            ? { ...key, signatures: { ...(key.signatures as Record<string, unknown> ?? {}), ...keySignatures } }
-            : key;
+          return attachSignatures(key, keyId);
         };
-        response.master_keys[matrixUserId] = attachSignatures(crossSigning.masterKey);
-        response.self_signing_keys[matrixUserId] = attachSignatures(crossSigning.selfSigningKey);
-        response.user_signing_keys[matrixUserId] = attachSignatures(crossSigning.userSigningKey);
+        response.master_keys[matrixUserId] = attachCrossSigningSignatures(crossSigning.masterKey);
+        response.self_signing_keys[matrixUserId] = attachCrossSigningSignatures(crossSigning.selfSigningKey);
+        response.user_signing_keys[matrixUserId] = attachCrossSigningSignatures(crossSigning.userSigningKey);
       }
     }
-
     await machine.markRequestAsSent(request.id, request.type, JSON.stringify(response));
   }
 
