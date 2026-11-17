@@ -183,6 +183,28 @@ class MatrixCryptoService {
   async bootstrapCrossSigning(firebaseUid: string): Promise<boolean> {
     return this.withAccountLock(firebaseUid, async () => {
       const machine = await this.getMachine(firebaseUid);
+      const registeredIdentity = await deviceRegistryService.getPublicCrossSigningKeys(firebaseUid);
+      if (registeredIdentity) {
+        const localStatus = await machine.crossSigningStatus();
+        if (!localStatus.hasMaster || !localStatus.hasSelfSigning || !localStatus.hasUserSigning) {
+          throw new Error('This installation has not received the account cross-signing secrets yet. Link it from an already trusted device first.');
+        }
+        const identity = await machine.getIdentity(new UserId(await stableMatrixUserId(firebaseUid))) as
+          | { masterKey?: string; free?: () => void }
+          | undefined;
+        if (!identity?.masterKey) {
+          identity?.free?.();
+          throw new Error('The local Matrix cross-signing identity is missing.');
+        }
+        try {
+          const localMasterKey = JSON.parse(identity.masterKey) as Record<string, unknown>;
+          if (JSON.stringify(localMasterKey) !== JSON.stringify(registeredIdentity.masterKey)) {
+            throw new Error('This installation has a different cross-signing identity. Refusing to replace the account identity.');
+          }
+        } finally {
+          identity.free?.();
+        }
+      }
       const bootstrap = await machine.bootstrapCrossSigning(false) as {
         uploadKeysRequest?: unknown;
         uploadSigningKeysRequest: { body: string };
