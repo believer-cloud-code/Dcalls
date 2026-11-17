@@ -550,7 +550,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
       }) : m));
 
       await updateDoc(doc(db, 'chats', chatId), {
-        lastMessage: isEncrypted ? '🔒 Encrypted Message' : text,
+        lastMessage: '🔒 Encrypted Message',
         lastMessageTime: serverTimestamp()
       });
 
