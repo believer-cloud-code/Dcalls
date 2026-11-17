@@ -3,6 +3,7 @@ import {
   EstablishedHpkeChannel,
   HpkeRecipientChannel,
   HpkeSenderChannel,
+  UnidirectionalSenderChannel,
 } from '@matrix-org/matrix-sdk-crypto-wasm';
 import {
   Timestamp,
@@ -37,7 +38,7 @@ interface ScannerSession {
   ownerUid: string;
   deviceId: string;
   expiresAt: number;
-  sender: ReturnType<HpkeSenderChannel['establishChannel']>;
+  sender: UnidirectionalSenderChannel;
   channel?: EstablishedHpkeChannel;
 }
 
@@ -86,7 +87,7 @@ function readQrPayload(value: string): PairingQrPayload {
   ) {
     throw new Error('This Dcalls device-link QR code is malformed or unsupported.');
   }
-  return candidate as PairingQrPayload;
+  return candidate as unknown as PairingQrPayload;
 }
 
 function assertNotExpired(expiresAt: number): void {
@@ -96,7 +97,7 @@ function assertNotExpired(expiresAt: number): void {
 }
 
 function checkCode(channel: EstablishedHpkeChannel): string {
-  return String(channel.checkCode.toDigit()).padStart(2, '0');
+  return String(channel.checkCode.to_digit()).padStart(2, '0');
 }
 
 /**
