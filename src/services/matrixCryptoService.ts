@@ -119,7 +119,7 @@ class MatrixCryptoService {
         throw new Error('The Matrix SDK generated an invalid device-key upload request.');
       }
 
-      const deviceId = this.getDeviceId(firebaseUid);
+      const deviceId = await this.getDeviceId(firebaseUid);
       await deviceRegistryService.publishDeviceKeys(firebaseUid, deviceId, {
         deviceKeys: body.device_keys,
         oneTimeKeys: body.one_time_keys ?? {},
@@ -354,10 +354,15 @@ class MatrixCryptoService {
           oneTimeKeys: body.one_time_keys ?? {},
           fallbackKeys: body.fallback_keys ?? {},
         });
+        const oneTimeKeyCounts: Record<string, number> = {};
+        for (const keyId of Object.keys(body.one_time_keys ?? {})) {
+          const algorithm = keyId.split(':', 1)[0];
+          oneTimeKeyCounts[algorithm] = (oneTimeKeyCounts[algorithm] ?? 0) + 1;
+        }
         await machine.markRequestAsSent(
           request.id,
           request.type,
-          JSON.stringify({ one_time_key_counts: {} }),
+          JSON.stringify({ one_time_key_counts: oneTimeKeyCounts }),
         );
       } else if (request instanceof ToDeviceRequest) {
         await this.processToDevice(
