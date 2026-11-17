@@ -907,24 +907,60 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
           <div className="markdown-body prose prose-invert prose-sm max-w-none">
             {msg.type === 'image' && msg.fileUrl && (
               <div className="mb-2 rounded-lg overflow-hidden border border-white/10">
-                <img src={msg.fileUrl} alt={msg.text} className="w-full h-auto max-h-60 object-cover" />
+                {(msg as any).attachmentEncrypted ? (
+                  attachmentBlobUrl ? (
+                    <img src={attachmentBlobUrl} alt={attachmentMetadata?.fileName || 'Encrypted image'} className="w-full h-auto max-h-60 object-cover" />
+                  ) : (
+                    <div className="p-4 text-xs text-gray-400">
+                      {attachmentLoading ? 'Decrypting secure image…' : 'Encrypted image — waiting for its key'}
+                    </div>
+                  )
+                ) : (
+                  <img src={msg.fileUrl} alt={msg.text} className="w-full h-auto max-h-60 object-cover" />
+                )}
               </div>
             )}
             {msg.type === 'file' && msg.fileUrl && (
-              <a
-                href={msg.fileUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-3 p-3 bg-white/5 rounded-xl border border-white/10 mb-2 hover:bg-white/10 transition-colors no-underline"
-              >
-                <div className="p-2 bg-indigo-500/20 rounded-lg text-indigo-400">
-                  <FileText size={18} />
+              (msg as any).attachmentEncrypted ? (
+                <div className="flex items-center gap-3 p-3 bg-white/5 rounded-xl border border-white/10 mb-2">
+                  <div className="p-2 bg-indigo-500/20 rounded-lg text-indigo-400">
+                    <FileText size={18} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium text-white truncate">
+                      {attachmentMetadata?.fileName || 'Encrypted file'}
+                    </p>
+                    {attachmentBlobUrl && attachmentMetadata ? (
+                      <a href={attachmentBlobUrl} download={attachmentMetadata.fileName} className="text-[10px] text-indigo-300 underline">
+                        Download decrypted file
+                      </a>
+                    ) : (
+                      <button
+                        onClick={openEncryptedAttachment}
+                        disabled={!attachmentMetadata || attachmentLoading}
+                        className="text-[10px] text-indigo-300 underline disabled:opacity-40"
+                      >
+                        {attachmentLoading ? 'Decrypting…' : 'Decrypt and download'}
+                      </button>
+                    )}
+                  </div>
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-medium text-white truncate">{msg.text}</p>
-                  <p className="text-[10px] text-gray-500 uppercase tracking-widest">Download File</p>
-                </div>
-              </a>
+              ) : (
+                <a
+                  href={msg.fileUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-3 p-3 bg-white/5 rounded-xl border border-white/10 mb-2 hover:bg-white/10 transition-colors no-underline"
+                >
+                  <div className="p-2 bg-indigo-500/20 rounded-lg text-indigo-400">
+                    <FileText size={18} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium text-white truncate">{msg.text}</p>
+                    <p className="text-[10px] text-gray-500 uppercase tracking-widest">Download File</p>
+                  </div>
+                </a>
+              )
             )}
             {isAi ? (
               <ReactMarkdown remarkPlugins={[remarkGfm]}>
