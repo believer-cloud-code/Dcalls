@@ -208,9 +208,23 @@ service cloud.firestore {
         allow read: if isAuthenticated() && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
         allow create: if isAuthenticated() &&
           request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants &&
-          (request.auth.uid == request.resource.data.senderId || request.resource.data.senderId == 'ai');
+          (
+            (
+              request.resource.data.senderId == request.auth.uid &&
+              request.resource.data.isEncrypted == true &&
+              request.resource.data.encryptionMethod == 'matrix-megolm' &&
+              request.resource.data.cryptoVersion == 2
+            ) ||
+            (
+              request.resource.data.senderId == 'ai' &&
+              request.resource.data.isAi == true
+            )
+          );
+        // Message contents and encrypted attachment references are immutable.
+        // Only delivery/read status and user feedback may be updated.
         allow update: if isAuthenticated() &&
-          request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
+          request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'feedback', 'feedbackAt']);
       }
     }
     
