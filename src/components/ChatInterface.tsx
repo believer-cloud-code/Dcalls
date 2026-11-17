@@ -15,6 +15,7 @@ import { Message } from '../types';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { CryptoService } from '../services/cryptoService';
+import { matrixCryptoService } from '../services/matrixCryptoService';
 
 
 // Speech Recognition setup
@@ -511,53 +512,42 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     setMessages(prev => [...prev, optimisticMsg]);
 
     try {
-      const crypto = await ensureEncryptionReady();
       const messagesRef = collection(db, 'chats', chatId, 'messages');
-
-      let encryptedText = text;
-      let isEncrypted = false;
-      let encryptionMethod: 'rsa' | 'symmetric' | undefined;
-
-      if (chatPartner?.id) {
-        const partnerDoc = await getDoc(doc(db, 'users', chatPartner.id));
-        const partnerKey = partnerDoc.data()?.publicKey;
-        if (partnerKey) {
-          try {
-            if (text.length < 190) {
-              encryptedText = await crypto.encryptMessage(text, partnerKey);
-              isEncrypted = true;
-              encryptionMethod = 'rsa';
-            } else {
-              encryptedText = await crypto.encryptSymmetric(
-                text,
-                crypto.deriveChatSecret(chatId, auth.currentUser.uid, chatPartner.id)
-              );
-              isEncrypted = true;
-              encryptionMethod = 'symmetric';
-            }
-          } catch (e) {
-            console.error('Encryption failed', e);
-          }
-        }
+      if (!chatPartner?.id) {
+        throw new Error('Cannot send an encrypted message because the chat partner could not be identified.');
       }
 
+      // New messages use the Matrix Olm/Megolm protocol. There is deliberately
+      // no plaintext or predictable-key fallback if key exchange fails.
+      const encryptedText = await matrixCryptoService.encryptChatMessage(
+        auth.currentUser.uid,
+        [chatPartner.id],
+        chatId,
+        tempId,
+        text,
+      );
+      const encryptionMethod = 'matrix-megolm';
       const messageRef = await addDoc(messagesRef, {
         chatId,
         clientId: tempId,
         senderId: auth.currentUser.uid,
         text: encryptedText,
-        isEncrypted,
-        ...(encryptionMethod ? { encryptionMethod } : {}),
+        isEncrypted: true,
+        encryptionMethod,
+        cryptoVersion: 2,
         timestamp: serverTimestamp(),
         type: 'text',
         status: 'sent'
       });
 
-      if (isEncrypted && encryptionMethod === 'rsa') {
-        setSentPlaintextAndDecrypted(messageRef.id, text);
-      }
-
-      setMessages(prev => prev.map(m => m.id === tempId ? ({ ...m, id: messageRef.id, status: 'sent' }) : m));
+      setMessages(prev => prev.map(m => m.id === tempId ? ({
+        ...m,
+        id: messageRef.id,
+        text: encryptedText,
+        isEncrypted: true,
+        encryptionMethod,
+        status: 'sent'
+      }) : m));
 
       await updateDoc(doc(db, 'chats', chatId), {
         lastMessage: isEncrypted ? '🔒 Encrypted Message' : text,
@@ -618,7 +608,30 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         setDecryptedText('Unable to decrypt this message. Retrying later.');
         return;
       }
-      if ((msg as any).isEncrypted && msg.senderId !== auth.currentUser?.uid) {
+      if ((msg as any).isEncrypted && (msg as any).encryptionMethod === 'matrix-megolm') {
+        setDecryptionStatus('decrypting');
+        try {
+          if (!auth.currentUser) throw new Error('Sign in to decrypt this message.');
+          const decrypted = await matrixCryptoService.decryptChatMessage(
+            auth.currentUser.uid,
+            chatId,
+            msg.senderId,
+            msg.id,
+            msg.text,
+          );
+          setDecryptedText(decrypted);
+          // Keep Matrix plaintext in memory only; never persist it as a local
+          // plaintext recovery mechanism.
+          decryptedCache.set(msg.id, decrypted);
+          failedDecryptMap.delete(msg.id);
+          setDecryptionStatus('success');
+        } catch (e) {
+          console.error('Matrix message decryption failed', e);
+          setDecryptionStatus('failed');
+          setDecryptedText('Unable to decrypt this encrypted message yet. The device key or room key may still be syncing.');
+          try { markDecryptFailed(msg.id); } catch {}
+        }
+      } else if ((msg as any).isEncrypted && msg.senderId !== auth.currentUser?.uid) {
         setDecryptionStatus('decrypting');
         try {
           const crypto = await ensureEncryptionReady();
