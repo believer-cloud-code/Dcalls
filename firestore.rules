@@ -150,6 +150,8 @@ service cloud.firestore {
           allow create: if isAuthenticated() &&
             request.resource.data.keyId is string &&
             request.resource.data.algorithm is string &&
+            request.resource.data.algorithm == request.resource.data.keyId.split(':')[0] &&
+            request.resource.data.keyId in get(/databases/$(database)/documents/users/$(userId)/devices/$(deviceId)).data.fallbackKeys.keys() &&
             request.resource.data.chatId is string &&
             request.resource.data.claimedBy == request.auth.uid &&
             request.resource.data.usedAt == request.time &&
