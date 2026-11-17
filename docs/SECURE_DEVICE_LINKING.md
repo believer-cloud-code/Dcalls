@@ -1,61 +1,63 @@
 # Dcalls Secure Device Linking
 
-## Goal
+## Protocol and dependency
 
-Allow a user who is already signed in on a new Dcalls installation to pair it with an existing trusted installation by scanning a short-lived QR code. The new installation must generate its own device identity and prekeys; private Olm device keys must never be copied between installations.
+Dcalls pins `@matrix-org/matrix-sdk-crypto-wasm@19.0.1`. Version 19.0.0 introduced the SDK's HPKE bindings for Matrix QR login (MSC4388); 18.9.2 does not expose those HPKE channel classes. Keep this dependency pinned and review Matrix SDK changelogs before upgrades.
 
-## Protocol building blocks
+Use the SDK primitives only:
 
-Use the pinned `@matrix-org/matrix-sdk-crypto-wasm` package's HPKE implementation:
+- `HpkeRecipientChannel` on the existing device displaying the QR code.
+- `HpkeSenderChannel` on the new device scanning it.
+- `UnidirectionalRecipientChannel` and `UnidirectionalSenderChannel` to complete the initial exchange.
+- `EstablishedHpkeChannel.checkCode` to compare the channel check code out-of-band.
+- `seal` and `open` for authenticated encrypted rendezvous messages.
+- `QrCodeData.newMsc4388` for the QR data envelope where its required homeserver/rendezvous semantics are supported. Dcalls' Firebase transport is custom; do not claim full Matrix MSC4388 interoperability unless its rendezvous protocol is implemented.
 
-- `HpkeRecipientChannel` on the device displaying the QR code.
-- `HpkeSenderChannel` on the scanning device.
-- `UnidirectionalRecipientChannel` and `UnidirectionalSenderChannel` to establish the bidirectional channel.
-- `EstablishedHpkeChannel.checkCode` to display a matching verification code on both devices before any secrets are transferred.
-- `seal` and `open` for encrypted rendezvous messages.
+The SDK release source exposes these methods. Do not replace them with homemade key agreement, encryption, or verification code calculations.
 
-The SDK documentation explicitly describes these classes as the HPKE channel used by Matrix QR login (MSC4388). Dcalls should reuse the audited HPKE implementation, not implement its own key agreement or encryption.
+## Cross-signing prerequisite
 
-## Dcalls transport
+Before account secrets or history keys can be transferred, bootstrap the Matrix SDK cross-signing identity. Dcalls now has a transport adapter that:
 
-Dcalls has no Matrix homeserver or Matrix rendezvous service. The pairing flow therefore needs a Dcalls-owned Firestore rendezvous adapter, using the existing authenticated Firebase account:
+1. Calls `OlmMachine.bootstrapCrossSigning(false)` (never resets an existing identity).
+2. Publishes the master, self-signing and user-signing public keys and the SDK-produced signatures to Firestore.
+3. Returns the three public key sets through the Matrix `/keys/query`-shaped response.
+4. Refuses to overwrite a different already-registered cross-signing identity.
 
-- Store a random, high-entropy, short-lived session ID under the account's device-link session collection.
-- Bind the session to the authenticated owner UID and the source device ID.
-- Store only the ephemeral HPKE public key and encrypted rendezvous messages.
-- Require the scanning installation to be authenticated as the same Firebase UID.
-- Enforce an expiry, one-time state transitions, and owner-only cancellation.
-- Never store the HPKE private channel, private device keys, cross-signing seeds, or plaintext history in Firestore.
-- Do not put Firebase credentials or account recovery secrets in the QR payload.
+The SDK's `exportSecretsBundle()` only succeeds when all three private cross-signing keys are available. The bundle must be transferred only to a trusted recipient over the established HPKE channel.
 
-The QR payload is a Dcalls-specific pairing envelope. Do not label it MSC4388-compatible login unless it follows the complete MSC4388 format and rendezvous semantics.
+## Firestore rendezvous design
 
-## Trust and history transfer prerequisites
+Dcalls has no Matrix homeserver. Pairing therefore uses a Dcalls-specific Firestore rendezvous transport:
 
-A successful HPKE channel proves that both devices share the same ephemeral secret; it does not, by itself, establish account-level cryptographic trust.
+- Session ID: at least 128 bits of cryptographic randomness; short expiry; single-use.
+- Session record: owner UID, source device ID, ephemeral HPKE public key, expiry and state only.
+- Message records: sender device ID, sequence, creation time and HPKE ciphertext only.
+- Both devices must be signed into the same Firebase account. Firestore rules must prevent other accounts from reading or writing the session.
+- Do not store HPKE private channel state, Olm private keys, cross-signing seeds, secret bundles, or plaintext chat history in Firestore.
+- The QR contains only a versioned Dcalls pairing envelope, session ID and HPKE public key. It contains no Firebase credential or account recovery secret.
+- Explicit approval on the existing device is required before sending a secrets bundle.
 
-Before transferring account secrets, Dcalls must implement the Matrix SDK cross-signing bootstrap transport. The SDK's `OlmMachine.bootstrapCrossSigning(false)` returns ordered upload requests for device keys (when needed), cross-signing keys, and signatures. Dcalls must persist and query the public cross-signing material through Firestore and feed successful responses back through `markRequestAsSent`.
+A successful HPKE channel proves that both endpoints share a secret; the users must still compare the SDK-generated check code to defend against a man-in-the-middle attack.
 
-The SDK's `exportSecretsBundle()` only succeeds when all three private cross-signing keys are available. The bundle is intended to be shared only with a trusted recipient. Do not add a QR screen that claims to complete trusted device linking until this prerequisite exists.
+## Transfer and completion
 
-After trust is established, encrypted room-history transfer can use the SDK's room-key export/import APIs over the HPKE channel. Do not transfer the source device's private Olm identity or IndexedDB crypto store wholesale. Do not use experimental room-key-bundle APIs as the only recovery path without a separate compatibility and failure plan.
-
-## UI and platform requirements
-
-- Add a QR generator and camera/image scanner with maintained libraries compatible with Vite, Electron, and Capacitor.
-- Show a clear device name, expiry countdown, and matching short verification code.
-- Require explicit confirmation on the existing trusted device before releasing secrets.
-- Provide cancel, expiry, replay rejection, and retry states.
-- On completion, register the new device's independently generated public identity and prekeys.
-- Add device listing and revocation so a lost device can be removed.
+- The new installation creates its own independent Matrix device identity and prekeys.
+- The existing device exports the SDK secret bundle only after user approval and successful check-code comparison.
+- The receiving device imports the bundle with `importSecretsBundle`.
+- Room history keys are exported/imported using Matrix SDK room-key APIs and sent only over the HPKE channel.
+- Never copy the old device's private Olm identity or IndexedDB crypto store wholesale.
+- After import, register the new device and verify that its public device keys are signed by the account's self-signing key.
+- Add device listing, revocation, cancellation, expiry and replay rejection.
 
 ## Security acceptance criteria
 
-1. QR sessions expire and cannot be replayed.
-2. A different Firebase account cannot read, write, or join a session.
+1. Expired and replayed pairing sessions are rejected.
+2. A different Firebase account cannot read, join or write to a session.
 3. Firestore contains only public ephemeral data and HPKE ciphertext.
-4. Neither device transfers secrets until the displayed verification codes match and the user approves.
-5. The receiving device validates the transferred cross-signing material using the Matrix SDK.
-6. The new device receives only the history keys it is authorized to receive.
+4. Neither device transfers secrets until the check codes match and the user approves.
+5. The receiving SDK accepts the imported cross-signing bundle and reports the account identity verified.
+6. Only authorized room keys are transferred.
 7. Revoking a device prevents future key sharing to it; old messages and backups are not silently deleted.
 8. Firestore rules are emulator-tested before deployment.
+9. CI passes type-check and production build; real two-device tests are still required.
