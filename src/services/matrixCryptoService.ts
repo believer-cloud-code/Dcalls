@@ -97,9 +97,9 @@ class MatrixCryptoService {
 
 
   /**
-   * Publishes the SDK-generated public device identity and pre-keys.
-   * This is only the /keys/upload stage of the transport adapter; key query,
-   * key claim, to-device delivery and sync are deliberately not implied here.
+   * Publishes the SDK-generated public device identity and pre-keys to
+   * Firestore, then acknowledges the upload to the local Matrix state machine.
+   * Private identity keys and the encrypted crypto store never leave this device.
    */
   async publishInitialDeviceKeys(firebaseUid: string): Promise<boolean> {
     const machine = await this.getMachine(firebaseUid);
