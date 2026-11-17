@@ -11,6 +11,7 @@ import {
   KeysUploadRequest,
   OlmMachine,
   RoomId,
+  SecretsBundle,
   ToDeviceRequest,
   TrustRequirement,
   UserId,
@@ -261,6 +262,55 @@ class MatrixCryptoService {
         throw new Error('Cross-signing keys were generated but are not all available in the local crypto store.');
       }
       return true;
+    });
+  }
+
+
+  async exportSecretsBundleForDeviceLink(firebaseUid: string): Promise<string> {
+    return this.withAccountLock(firebaseUid, async () => {
+      const machine = await this.getMachine(firebaseUid);
+      const bundle = await machine.exportSecretsBundle();
+      try {
+        return JSON.stringify(bundle.to_json());
+      } finally {
+        bundle.free();
+      }
+    });
+  }
+
+  async importSecretsBundleFromDeviceLink(firebaseUid: string, serializedBundle: string): Promise<void> {
+    await this.withAccountLock(firebaseUid, async () => {
+      const machine = await this.getMachine(firebaseUid);
+      const parsed = JSON.parse(serializedBundle) as unknown;
+      const bundle = SecretsBundle.from_json(parsed);
+      await machine.importSecretsBundle(bundle);
+      const status = await machine.crossSigningStatus();
+      if (!status.hasMaster || !status.hasSelfSigning || !status.hasUserSigning) {
+        throw new Error('The imported account signing keys are incomplete.');
+      }
+    });
+    await this.signCurrentDeviceForCrossSigning(firebaseUid);
+  }
+
+  async signCurrentDeviceForCrossSigning(firebaseUid: string): Promise<void> {
+    await this.withAccountLock(firebaseUid, async () => {
+      const machine = await this.getMachine(firebaseUid);
+      const userId = new UserId(await stableMatrixUserId(firebaseUid));
+      const deviceId = new DeviceId(await this.getDeviceId(firebaseUid));
+      const getDevice = machine.getDevice as unknown as (
+        user: UserId,
+        device: DeviceId,
+        timeoutSeconds?: number,
+      ) => Promise<{ verify: () => Promise<{ body: string }>; free: () => void } | undefined>;
+      const device = await getDevice.call(machine, userId, deviceId);
+      if (!device) throw new Error('The local Matrix device is not registered in the crypto store.');
+      try {
+        const signatureRequest = await device.verify();
+        const signatures = JSON.parse(signatureRequest.body) as Record<string, unknown>;
+        await deviceRegistryService.publishCrossSigningSignatures(firebaseUid, signatures);
+      } finally {
+        device.free();
+      }
     });
   }
 
