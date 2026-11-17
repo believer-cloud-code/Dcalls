@@ -169,6 +169,17 @@ export const deviceRegistryService = {
     });
   },
 
+  async getOneTimeKeyCounts(ownerUid: string, deviceId: string): Promise<Record<string, number>> {
+    const keysRef = collection(db, 'users', ownerUid, 'devices', deviceId, 'oneTimeKeys');
+    const snapshot = await getDocs(query(keysRef, where('claimedBy', '==', null)));
+    const counts: Record<string, number> = {};
+    for (const item of snapshot.docs) {
+      const algorithm = String(item.data().algorithm ?? '');
+      if (algorithm) counts[algorithm] = (counts[algorithm] ?? 0) + 1;
+    }
+    return counts;
+  },
+
   async getUnusedFallbackKeyTypes(ownerUid: string, deviceId: string): Promise<string[]> {
     const deviceSnapshot = await getDoc(doc(db, 'users', ownerUid, 'devices', deviceId));
     const fallbackKeys = deviceSnapshot.data()?.fallbackKeys as Record<string, Record<string, unknown>> | undefined;
