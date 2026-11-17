@@ -226,7 +226,9 @@ service cloud.firestore {
               request.resource.data.revokedAt == request.time &&
               request.resource.data.revokedBy == request.auth.uid)
           );
-        allow delete: if isOwner(userId);
+        // Preserve revoked device records so the same device ID cannot be
+        // re-registered to bypass revocation.
+        allow delete: if false;
 
         match /oneTimeKeys/{keyId} {
           allow read: if isAuthenticated();
