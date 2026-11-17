@@ -188,33 +188,63 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
     setUploadingFile(true);
     try {
-      const fileId = Math.random().toString(36).substring(7);
-      const extension = file.name.split('.').pop();
-      const path = `chats/${chatId}/media/${fileId}.${extension}`;
+      if (!chatPartner?.id) {
+        throw new Error('Cannot send an encrypted attachment because the chat partner could not be identified.');
+      }
 
-      const downloadURL = await databaseService.uploadFile(path, file);
+      const fileId = crypto.randomUUID();
+      const encryptedAttachment = await matrixCryptoService.encryptAttachment(file);
+      const encryptedBuffer = encryptedAttachment.encryptedData.buffer.slice(
+        encryptedAttachment.encryptedData.byteOffset,
+        encryptedAttachment.encryptedData.byteOffset + encryptedAttachment.encryptedData.byteLength,
+      ) as ArrayBuffer;
+      const encryptedBlob = new Blob([encryptedBuffer], { type: 'application/octet-stream' });
+      // Use a neutral extension so the original file type and name are not
+      // exposed by the storage path.
+      const path = `chats/${chatId}/media/${fileId}.bin`;
+      const downloadURL = await databaseService.uploadFile(path, encryptedBlob);
 
+      const attachmentMetadata = JSON.stringify({
+        fileName: file.name,
+        fileType: file.type || 'application/octet-stream',
+        mediaEncryptionInfo: encryptedAttachment.mediaEncryptionInfo,
+      });
+      const encryptedMetadata = await matrixCryptoService.encryptChatMessage(
+        auth.currentUser.uid,
+        [chatPartner.id],
+        chatId,
+        fileId,
+        attachmentMetadata,
+      );
+
+      const isImage = file.type.startsWith('image/');
       const messagesRef = collection(db, 'chats', chatId, 'messages');
       await addDoc(messagesRef, {
         chatId,
+        clientId: fileId,
         senderId: auth.currentUser.uid,
-        text: file.name,
+        text: encryptedMetadata,
         fileUrl: downloadURL,
-        fileType: file.type,
+        isEncrypted: true,
+        encryptionMethod: 'matrix-megolm',
+        cryptoVersion: 2,
+        attachmentEncrypted: true,
         timestamp: serverTimestamp(),
-        type: file.type.startsWith('image/') ? 'image' : 'file',
+        type: isImage ? 'image' : 'file',
         status: 'sent'
       });
 
       await updateDoc(doc(db, 'chats', chatId), {
-        lastMessage: file.type.startsWith('image/') ? "📷 Image" : `📄 ${file.name}`,
+        lastMessage: isImage ? '🔒 Encrypted image' : '🔒 Encrypted file',
         lastMessageTime: serverTimestamp()
       });
     } catch (error) {
-      console.error("File upload failed", error);
+      console.error('Encrypted file upload failed', error);
+      setAiError(error instanceof Error ? error.message : 'The encrypted attachment could not be sent.');
     } finally {
       setUploadingFile(false);
       setIsMenuOpen(false);
+      e.target.value = '';
     }
   };
 
