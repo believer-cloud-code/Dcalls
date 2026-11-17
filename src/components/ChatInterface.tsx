@@ -632,11 +632,36 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     const [attachmentBlobUrl, setAttachmentBlobUrl] = useState<string | null>(null);
     const [attachmentLoading, setAttachmentLoading] = useState(false);
 
+    const applyMatrixDecryptedContent = (plaintext: string) => {
+      if ((msg.type === 'image' || msg.type === 'file') && (msg as any).attachmentEncrypted) {
+        const metadata = JSON.parse(plaintext) as {
+          fileName?: string;
+          fileType?: string;
+          mediaEncryptionInfo?: string;
+        };
+        if (!metadata.fileName || !metadata.mediaEncryptionInfo) {
+          throw new Error('The encrypted attachment metadata is incomplete.');
+        }
+        setAttachmentMetadata({
+          fileName: metadata.fileName,
+          fileType: metadata.fileType || 'application/octet-stream',
+          mediaEncryptionInfo: metadata.mediaEncryptionInfo,
+        });
+        setDecryptedText(metadata.fileName);
+      } else {
+        setDecryptedText(plaintext);
+      }
+    };
+
     const decrypt = async () => {
       // Check shared cache first to avoid re-decrypting the same message repeatedly
       const cached = decryptedCache.get(msg.id);
       if (cached !== undefined) {
-        setDecryptedText(cached);
+        if ((msg as any).encryptionMethod === 'matrix-megolm') {
+          applyMatrixDecryptedContent(cached);
+        } else {
+          setDecryptedText(cached);
+        }
         setDecryptionStatus('success');
         return;
       }
@@ -659,30 +684,10 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             msg.id,
             msg.text,
           );
-          if ((msg.type === 'image' || msg.type === 'file') && (msg as any).attachmentEncrypted) {
-            const metadata = JSON.parse(decrypted) as {
-              fileName?: string;
-              fileType?: string;
-              mediaEncryptionInfo?: string;
-            };
-            if (!metadata.fileName || !metadata.mediaEncryptionInfo) {
-              throw new Error('The encrypted attachment metadata is incomplete.');
-            }
-            setAttachmentMetadata({
-              fileName: metadata.fileName,
-              fileType: metadata.fileType || 'application/octet-stream',
-              mediaEncryptionInfo: metadata.mediaEncryptionInfo,
-            });
-            setDecryptedText(metadata.fileName);
-          } else {
-            setDecryptedText(decrypted);
-          }
-          // Keep ordinary message plaintext in memory only. Attachment
-          // metadata stays in component state so it can be re-parsed after a
-          // message bubble remounts.
-          if (!((msg.type === 'image' || msg.type === 'file') && (msg as any).attachmentEncrypted)) {
-            decryptedCache.set(msg.id, decrypted);
-          }
+          applyMatrixDecryptedContent(decrypted);
+          // Keep decrypted content in memory only; never persist it as a
+          // plaintext recovery mechanism in localStorage.
+          decryptedCache.set(msg.id, decrypted);
           failedDecryptMap.delete(msg.id);
           setDecryptionStatus('success');
         } catch (e) {
@@ -805,7 +810,11 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
       if (cached !== undefined || sentCached !== undefined) {
         const plaintext = cached !== undefined ? cached : sentCached!;
-        setDecryptedText(plaintext);
+        if (cached !== undefined && (msg as any).encryptionMethod === 'matrix-megolm') {
+          applyMatrixDecryptedContent(plaintext);
+        } else {
+          setDecryptedText(plaintext);
+        }
         setDecryptionStatus('success');
         lastMsgTextRef.current = msg.text;
         return;
