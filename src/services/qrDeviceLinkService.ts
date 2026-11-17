@@ -55,7 +55,7 @@ function sessionRef(uid: string, sessionId: string) {
   return doc(db, 'users', uid, 'deviceLinkSessions', sessionId);
 }
 
-function messageRef(uid: string, sessionId: string, name: 'join' | 'accept' | 'final') {
+function messageRef(uid: string, sessionId: string, name: 'join' | 'accept' | 'final' | 'secrets' | 'secretsAck') {
   return doc(db, 'users', uid, 'deviceLinkSessions', sessionId, 'messages', name);
 }
 
