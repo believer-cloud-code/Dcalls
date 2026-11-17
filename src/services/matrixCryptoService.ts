@@ -534,6 +534,10 @@ class MatrixCryptoService {
       await deviceRegistryService.deleteDeviceInboxEvent(firebaseUid, deviceId, item.id);
     }
 
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('dcalls:matrix-keys-updated', { detail: { chatId } }));
+    }
+
     // Handle protocol work generated while processing the incoming events.
     await this.publishInitialDeviceKeys(firebaseUid);
     const outgoing = await machine.outgoingRequests();
