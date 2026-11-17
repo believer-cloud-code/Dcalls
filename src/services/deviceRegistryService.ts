@@ -1,5 +1,6 @@
 import {
   collection,
+  deleteDoc,
   doc,
   getDocs,
   limit,
@@ -142,6 +143,26 @@ export const deviceRegistryService = {
         protocol: 'matrix-olm-megolm',
       },
     );
+  },
+
+
+  async listPendingDeviceEvents(ownerUid: string, deviceId: string, chatId: string) {
+    if (!ownerUid || !deviceId || !chatId) {
+      throw new Error('A device owner, device and chat are required.');
+    }
+    const inboxRef = collection(db, 'users', ownerUid, 'devices', deviceId, 'inbox');
+    const snapshot = await getDocs(query(inboxRef, where('chatId', '==', chatId)));
+    return snapshot.docs
+      .map((eventDoc) => ({ id: eventDoc.id, ...eventDoc.data(), ref: eventDoc.ref }))
+      .sort((a: any, b: any) => {
+        const aTime = a.createdAt?.toMillis?.() ?? 0;
+        const bTime = b.createdAt?.toMillis?.() ?? 0;
+        return aTime - bTime;
+      });
+  },
+
+  async deleteDeviceInboxEvent(ownerUid: string, deviceId: string, eventId: string): Promise<void> {
+    await deleteDoc(doc(db, 'users', ownerUid, 'devices', deviceId, 'inbox', eventId));
   },
 
   async listPublicDevices(ownerUid: string) {
