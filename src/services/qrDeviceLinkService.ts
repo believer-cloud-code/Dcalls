@@ -325,6 +325,87 @@ class QrDeviceLinkService {
     this.scannerSessions.delete(sessionId);
   }
 
+
+  async sendSecretsBundle(uid: string, sessionId: string, serializedBundle: string): Promise<void> {
+    assertSignedIn(uid);
+    const source = this.sourceSessions.get(sessionId);
+    if (!source?.channel || source.ownerUid !== uid) {
+      throw new Error('The verified source-device channel is unavailable.');
+    }
+    assertNotExpired(source.expiresAt);
+    const parent = await getDoc(sessionRef(uid, sessionId));
+    if (!parent.exists() || parent.data().state !== 'verified') {
+      throw new Error('Verify the matching device code before transferring account keys.');
+    }
+    const ref = messageRef(uid, sessionId, 'secrets');
+    await runTransaction(db, async (transaction) => {
+      const existing = await transaction.get(ref);
+      const current = await transaction.get(sessionRef(uid, sessionId));
+      if (existing.exists() || !current.exists() || current.data().state !== 'verified') {
+        throw new Error('Account keys have already been sent or this pairing session is no longer verified.');
+      }
+      transaction.set(ref, {
+        ciphertext: source.channel!.seal(serializedBundle, aadFor(sessionId)),
+        createdAt: serverTimestamp(),
+      });
+    });
+  }
+
+  async receiveSecretsBundle(uid: string, sessionId: string): Promise<string> {
+    assertSignedIn(uid);
+    const scanner = this.scannerSessions.get(sessionId);
+    if (!scanner?.channel || scanner.ownerUid !== uid) {
+      throw new Error('The verified new-device channel is unavailable.');
+    }
+    assertNotExpired(scanner.expiresAt);
+    const parent = await getDoc(sessionRef(uid, sessionId));
+    if (!parent.exists() || parent.data().state !== 'verified') {
+      throw new Error('The existing device has not verified this pairing session.');
+    }
+    const snapshot = await getDoc(messageRef(uid, sessionId, 'secrets'));
+    if (!snapshot.exists()) throw new Error('The existing device has not sent the account signing keys yet.');
+    return scanner.channel.open(String(snapshot.data().ciphertext ?? ''), aadFor(sessionId));
+  }
+
+  async acknowledgeSecretsBundle(uid: string, sessionId: string): Promise<void> {
+    assertSignedIn(uid);
+    const scanner = this.scannerSessions.get(sessionId);
+    if (!scanner?.channel || scanner.ownerUid !== uid) {
+      throw new Error('The new-device secure channel is unavailable.');
+    }
+    const ref = messageRef(uid, sessionId, 'secretsAck');
+    await runTransaction(db, async (transaction) => {
+      const existing = await transaction.get(ref);
+      const current = await transaction.get(sessionRef(uid, sessionId));
+      if (existing.exists() || !current.exists() || current.data().state !== 'verified') {
+        throw new Error('The transfer acknowledgement already exists or the session is no longer active.');
+      }
+      transaction.set(ref, {
+        ciphertext: scanner.channel!.seal(
+          JSON.stringify({ protocol: PROTOCOL, version: VERSION, type: 'secrets-received' }),
+          aadFor(sessionId),
+        ),
+        createdAt: serverTimestamp(),
+      });
+    });
+  }
+
+  async verifySecretsBundleReceipt(uid: string, sessionId: string): Promise<boolean> {
+    assertSignedIn(uid);
+    const source = this.sourceSessions.get(sessionId);
+    if (!source?.channel || source.ownerUid !== uid) {
+      throw new Error('The source-device secure channel is unavailable.');
+    }
+    const snapshot = await getDoc(messageRef(uid, sessionId, 'secretsAck'));
+    if (!snapshot.exists()) return false;
+    const plaintext = source.channel.open(String(snapshot.data().ciphertext ?? ''), aadFor(sessionId));
+    const ack = JSON.parse(plaintext) as Record<string, unknown>;
+    if (ack.protocol !== PROTOCOL || ack.version !== VERSION || ack.type !== 'secrets-received') {
+      throw new Error('The new device returned an invalid key-transfer acknowledgement.');
+    }
+    return true;
+  }
+
   getEstablishedChannel(uid: string, sessionId: string): EstablishedHpkeChannel {
     const source = this.sourceSessions.get(sessionId);
     const scanner = this.scannerSessions.get(sessionId);
