@@ -35,6 +35,7 @@ export const DeviceLinkingPanel: React.FC<DeviceLinkingPanelProps> = ({ userId }
   const [sourceAccepted, setSourceAccepted] = useState(false);
   const [scannerCompleted, setScannerCompleted] = useState(false);
   const [sourceVerified, setSourceVerified] = useState(false);
+  const [scannerCodeConfirmed, setScannerCodeConfirmed] = useState(false);
   const [registeredDevices, setRegisteredDevices] = useState<Array<{ id: string; deviceKeys?: Record<string, unknown>; revokedAt?: unknown; updatedAt?: unknown }>>([]);
   const videoRef = useRef<HTMLVideoElement>(null);
 
@@ -176,6 +177,7 @@ export const DeviceLinkingPanel: React.FC<DeviceLinkingPanelProps> = ({ userId }
     setSessionId(joined);
     setVerificationCode('');
     setScannerCompleted(false);
+    setScannerCodeConfirmed(false);
     setBundleReceived(false);
     setStatus('Pairing request sent. Approve it on the device displaying the QR code.');
   });
@@ -185,6 +187,7 @@ export const DeviceLinkingPanel: React.FC<DeviceLinkingPanelProps> = ({ userId }
     const code = await qrDeviceLinkService.completeJoin(userId, sessionId);
     setVerificationCode(code);
     setScannerCompleted(true);
+    setScannerCodeConfirmed(false);
     setStatus('Secure channel established. Compare this code with the existing device.');
   });
 
@@ -225,6 +228,7 @@ export const DeviceLinkingPanel: React.FC<DeviceLinkingPanelProps> = ({ userId }
     setReceiptVerified(false);
     setSourceAccepted(false);
     setScannerCompleted(false);
+    setScannerCodeConfirmed(false);
     setSourceVerified(false);
     setStatus('Pairing cancelled.');
   });
@@ -332,7 +336,15 @@ export const DeviceLinkingPanel: React.FC<DeviceLinkingPanelProps> = ({ userId }
               <p className="text-[10px] uppercase tracking-widest text-emerald-300">Compare this code</p>
               <p className="text-4xl font-black tracking-[0.3em] tabular-nums">{verificationCode}</p>
               <p className="text-xs text-gray-400">Verify that the existing device displays the same code.</p>
-              {scannerCompleted && !bundleReceived && (
+              {scannerCompleted && !scannerCodeConfirmed && (
+                <button onClick={() => {
+                  setScannerCodeConfirmed(true);
+                  setStatus('You confirmed that both devices display the same verification code.');
+                }} className="w-full rounded-xl border border-emerald-500/30 py-3 text-xs font-bold text-emerald-300">
+                  I confirm the codes match
+                </button>
+              )}
+              {scannerCompleted && scannerCodeConfirmed && !bundleReceived && (
                 <button disabled={busy} onClick={receiveAccountKeys} className="w-full rounded-xl bg-indigo-600 py-3 text-xs font-bold disabled:opacity-50">
                   Receive account signing keys
                 </button>
