@@ -102,10 +102,16 @@ test('one-time keys can be claimed once by a participant in the shared chat', as
     await setDoc(doc(context.firestore(), 'users/alice/devices/alice-device/oneTimeKeys/otk-1'), {
       key: { key: 'public-one-time-key' },
       keyId: 'otk-1',
+      keyDocumentId: 'otk-1',
       algorithm: 'signed_curve25519',
       claimedBy: null,
     });
   });
+
+  await assertFails(setDoc(doc(alice(), 'users/alice/devices/alice-device/oneTimeKeys/wrong-path'), {
+    key: { key: 'public-one-time-key' }, keyId: 'otk-wrong', keyDocumentId: 'otk-1',
+    algorithm: 'signed_curve25519', claimedBy: null,
+  }));
 
   const keyRef = doc(bob(), 'users/alice/devices/alice-device/oneTimeKeys/otk-1');
   await assertSucceeds(updateDoc(keyRef, {
@@ -118,6 +124,28 @@ test('one-time keys can be claimed once by a participant in the shared chat', as
     claimedBy: 'alice',
     chatId: 'chat-1',
     claimedAt: serverTimestamp(),
+  }));
+});
+
+test('fallback-key usage records must match the encoded key document path', async () => {
+  const keyId = 'signed_curve25519:fallback-1';
+  const documentId = 'signed_curve25519%3Afallback-1';
+  await env.withSecurityRulesDisabled(async (context) => {
+    await updateDoc(doc(context.firestore(), 'users/alice/devices/alice-device'), {
+      fallbackKeys: {
+        [keyId]: { key: 'fallback-public-key', fallback: true, signatures: { valid: true } },
+      },
+    });
+  });
+
+  await assertFails(setDoc(doc(bob(), 'users/alice/devices/alice-device/fallbackKeyUsage/wrong-path'), {
+    keyId, usageDocumentId: documentId, algorithm: 'signed_curve25519',
+    chatId: 'chat-1', claimedBy: 'bob', usedAt: serverTimestamp(),
+  }));
+
+  await assertSucceeds(setDoc(doc(bob(), 'users/alice/devices/alice-device/fallbackKeyUsage', documentId), {
+    keyId, usageDocumentId: documentId, algorithm: 'signed_curve25519',
+    chatId: 'chat-1', claimedBy: 'bob', usedAt: serverTimestamp(),
   }));
 });
 
