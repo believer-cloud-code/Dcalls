@@ -28,6 +28,8 @@ export const DeviceLinkingPanel: React.FC<DeviceLinkingPanelProps> = ({ userId }
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [cameraActive, setCameraActive] = useState(false);
+  const [bundleSent, setBundleSent] = useState(false);
+  const [bundleReceived, setBundleReceived] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
@@ -152,6 +154,30 @@ export const DeviceLinkingPanel: React.FC<DeviceLinkingPanelProps> = ({ userId }
     setStatus('Secure channel established. Compare this code with the existing device.');
   });
 
+  const sendAccountKeys = () => run(async () => {
+    if (!sessionId) throw new Error('No verified pairing session is active.');
+    const bundle = await matrixCryptoService.exportSecretsBundleForDeviceLink(userId);
+    await qrDeviceLinkService.sendSecretsBundle(userId, sessionId, bundle);
+    setBundleSent(true);
+    setStatus('Encrypted account signing keys sent. Waiting for the new device to confirm import.');
+  });
+
+  const receiveAccountKeys = () => run(async () => {
+    if (!sessionId) throw new Error('No verified pairing session is active.');
+    const bundle = await qrDeviceLinkService.receiveSecretsBundle(userId, sessionId);
+    await matrixCryptoService.importSecretsBundleFromDeviceLink(userId, bundle);
+    await qrDeviceLinkService.acknowledgeSecretsBundle(userId, sessionId);
+    setBundleReceived(true);
+    setStatus('Account signing keys imported. This device has signed its own device identity.');
+  });
+
+  const checkAccountKeysReceipt = () => run(async () => {
+    if (!sessionId) throw new Error('No pairing session is active.');
+    const received = await qrDeviceLinkService.verifySecretsBundleReceipt(userId, sessionId);
+    if (!received) throw new Error('The new device has not confirmed the key import yet.');
+    setStatus('New device confirmed account signing-key import and device signing.');
+  });
+
   const cancel = () => run(async () => {
     if (sessionId) await qrDeviceLinkService.cancelSession(userId, sessionId);
     setSessionId('');
@@ -214,6 +240,16 @@ export const DeviceLinkingPanel: React.FC<DeviceLinkingPanelProps> = ({ userId }
                   <button disabled={busy} onClick={verifySource} className="w-full rounded-xl bg-emerald-600 py-3 text-xs font-bold disabled:opacity-50">
                     Confirm matching code
                   </button>
+                  {status.includes('verified') && !bundleSent && (
+                    <button disabled={busy} onClick={sendAccountKeys} className="w-full rounded-xl bg-indigo-600 py-3 text-xs font-bold disabled:opacity-50">
+                      Transfer account signing keys
+                    </button>
+                  )}
+                  {bundleSent && (
+                    <button disabled={busy} onClick={checkAccountKeysReceipt} className="w-full rounded-xl border border-white/10 py-3 text-xs font-bold disabled:opacity-50">
+                      Check new-device confirmation
+                    </button>
+                  )}
                 </div>
               )}
             </>
@@ -250,6 +286,11 @@ export const DeviceLinkingPanel: React.FC<DeviceLinkingPanelProps> = ({ userId }
               <p className="text-[10px] uppercase tracking-widest text-emerald-300">Compare this code</p>
               <p className="text-4xl font-black tracking-[0.3em] tabular-nums">{verificationCode}</p>
               <p className="text-xs text-gray-400">Verify that the existing device displays the same code.</p>
+              {!bundleReceived && (
+                <button disabled={busy} onClick={receiveAccountKeys} className="w-full rounded-xl bg-indigo-600 py-3 text-xs font-bold disabled:opacity-50">
+                  Receive account signing keys
+                </button>
+              )}
             </div>
           )}
         </div>
