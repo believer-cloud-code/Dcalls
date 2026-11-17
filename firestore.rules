@@ -271,7 +271,7 @@ service cloud.firestore {
             exists(/databases/$(database)/documents/chats/$(request.resource.data.chatId)) &&
             request.auth.uid in get(/databases/$(database)/documents/chats/$(request.resource.data.chatId)).data.participants &&
             userId in get(/databases/$(database)/documents/chats/$(request.resource.data.chatId)).data.participants;
-          allow update, delete: if isOwner(userId);
+          allow update, delete: if false;
         }
 
         match /inbox/{eventId} {
