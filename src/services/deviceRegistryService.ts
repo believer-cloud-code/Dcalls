@@ -9,6 +9,7 @@ import {
   runTransaction,
   serverTimestamp,
   setDoc,
+  updateDoc,
   where,
 } from 'firebase/firestore';
 import { auth, db } from '../firebase';
@@ -121,6 +122,10 @@ export const deviceRegistryService = {
     }
 
     const deviceRef = doc(db, 'users', ownerUid, 'devices', deviceId);
+    const existingDevice = await getDoc(deviceRef);
+    if (existingDevice.exists() && existingDevice.data().revokedAt) {
+      throw new Error('This device has been revoked and cannot publish keys again.');
+    }
     const oneTimeKeys = Object.entries(keys.oneTimeKeys ?? {});
 
     await setDoc(deviceRef, {
@@ -162,6 +167,9 @@ export const deviceRegistryService = {
 
     const claimantUid = auth.currentUser?.uid;
     if (!claimantUid) throw new Error('Sign in before claiming a device key.');
+
+    const deviceSnapshot = await getDoc(doc(db, 'users', ownerUid, 'devices', deviceId));
+    if (!deviceSnapshot.exists() || deviceSnapshot.data().revokedAt) return null;
 
     const keysRef = collection(db, 'users', ownerUid, 'devices', deviceId, 'oneTimeKeys');
     const candidates = await getDocs(query(keysRef, where('algorithm', '==', algorithm)));
@@ -292,6 +300,10 @@ export const deviceRegistryService = {
 
     const senderUid = auth.currentUser?.uid;
     if (!senderUid) throw new Error('Sign in before sending an encrypted device event.');
+    const recipientDevice = await getDoc(doc(db, 'users', recipientUid, 'devices', recipientDeviceId));
+    if (!recipientDevice.exists() || recipientDevice.data().revokedAt) {
+      throw new Error('The recipient device is unavailable or has been revoked.');
+    }
 
     await setDoc(
       doc(db, 'users', recipientUid, 'devices', recipientDeviceId, 'inbox', eventId),
@@ -345,11 +357,14 @@ export const deviceRegistryService = {
     await deleteDoc(doc(db, 'users', ownerUid, 'devices', deviceId, 'inbox', eventId));
   },
 
-  async listPublicDevices(ownerUid: string): Promise<Array<{
+
+  async listAllDevices(ownerUid: string): Promise<Array<{
     id: string;
     deviceKeys?: Record<string, unknown>;
-    [key: string]: unknown;
+    revokedAt?: unknown;
+    updatedAt?: unknown;
   }>> {
+    if (auth.currentUser?.uid !== ownerUid) throw new Error('Only the account owner can list registered devices.');
     const snapshot = await getDocs(collection(db, 'users', ownerUid, 'devices'));
     return snapshot.docs.map((device) => ({
       id: device.id,
@@ -357,7 +372,40 @@ export const deviceRegistryService = {
     }) as {
       id: string;
       deviceKeys?: Record<string, unknown>;
-      [key: string]: unknown;
+      revokedAt?: unknown;
+      updatedAt?: unknown;
     });
+  },
+
+  async revokeDevice(ownerUid: string, deviceId: string): Promise<void> {
+    if (!ownerUid || !deviceId || auth.currentUser?.uid !== ownerUid) {
+      throw new Error('Only the signed-in account owner can revoke a device.');
+    }
+    const ref = doc(db, 'users', ownerUid, 'devices', deviceId);
+    const snapshot = await getDoc(ref);
+    if (!snapshot.exists()) throw new Error('The device does not exist.');
+    if (snapshot.data().revokedAt) return;
+    await updateDoc(ref, {
+      revokedAt: serverTimestamp(),
+      revokedBy: ownerUid,
+    });
+  },
+
+  async listPublicDevices(ownerUid: string): Promise<Array<{
+    id: string;
+    deviceKeys?: Record<string, unknown>;
+    [key: string]: unknown;
+  }>> {
+    const snapshot = await getDocs(collection(db, 'users', ownerUid, 'devices'));
+    return snapshot.docs
+      .filter((device) => !device.data().revokedAt)
+      .map((device) => ({
+        id: device.id,
+        ...device.data(),
+      }) as {
+        id: string;
+        deviceKeys?: Record<string, unknown>;
+        [key: string]: unknown;
+      });
   },
 };
