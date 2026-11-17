@@ -56,6 +56,25 @@ async function stableMatrixUserId(firebaseUid: string): Promise<string> {
  */
 class MatrixCryptoService {
   private inboxProcessing = new Map<string, Promise<number>>();
+  private accountOperations = new Map<string, Promise<void>>();
+
+  private async withAccountLock<T>(firebaseUid: string, operation: () => Promise<T>): Promise<T> {
+    if (!firebaseUid) throw new Error('A signed-in user is required for cryptographic operations.');
+    const previous = this.accountOperations.get(firebaseUid) ?? Promise.resolve();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const queued = previous.catch(() => undefined).then(() => gate);
+    this.accountOperations.set(firebaseUid, queued);
+    await previous.catch(() => undefined);
+    try {
+      return await operation();
+    } finally {
+      release();
+      if (this.accountOperations.get(firebaseUid) === queued) {
+        this.accountOperations.delete(firebaseUid);
+      }
+    }
+  }
   async getMachine(firebaseUid: string): Promise<OlmMachine> {
     if (!firebaseUid) throw new Error('A signed-in Dcalls user is required.');
 
@@ -104,6 +123,10 @@ class MatrixCryptoService {
    * Private identity keys and the encrypted crypto store never leave this device.
    */
   async publishInitialDeviceKeys(firebaseUid: string): Promise<boolean> {
+    return this.withAccountLock(firebaseUid, () => this.publishInitialDeviceKeysUnlocked(firebaseUid));
+  }
+
+  private async publishInitialDeviceKeysUnlocked(firebaseUid: string): Promise<boolean> {
     const machine = await this.getMachine(firebaseUid);
     const requests = await machine.outgoingRequests();
     let published = false;
@@ -138,10 +161,14 @@ class MatrixCryptoService {
         oneTimeKeyCounts[algorithm] = (oneTimeKeyCounts[algorithm] ?? 0) + 1;
       }
 
+      const unusedFallbackKeyTypes = await deviceRegistryService.getUnusedFallbackKeyTypes(firebaseUid, deviceId);
       await machine.markRequestAsSent(
         request.id,
         request.type,
-        JSON.stringify({ one_time_key_counts: oneTimeKeyCounts })
+        JSON.stringify({
+          one_time_key_counts: oneTimeKeyCounts,
+          unused_fallback_key_types: unusedFallbackKeyTypes,
+        })
       );
       published = true;
     }
@@ -169,6 +196,7 @@ class MatrixCryptoService {
     const response: { device_keys: Record<string, Record<string, unknown>>; failures: Record<string, unknown> } = {
       device_keys: {},
       failures: {},
+      master_keys: {},
     };
 
     for (const matrixUserId of Object.keys(body.device_keys ?? {})) {
@@ -290,12 +318,22 @@ class MatrixCryptoService {
     peerFirebaseUids: string[],
     chatId: string,
   ): Promise<RoomId> {
+    return this.withAccountLock(firebaseUid, () =>
+      this.prepareChatRoomKeyUnlocked(firebaseUid, peerFirebaseUids, chatId)
+    );
+  }
+
+  private async prepareChatRoomKeyUnlocked(
+    firebaseUid: string,
+    peerFirebaseUids: string[],
+    chatId: string,
+  ): Promise<RoomId> {
     if (!firebaseUid || !chatId) throw new Error('A signed-in user and chat are required.');
     const peers = [...new Set(peerFirebaseUids)].filter((uid) => uid && uid !== firebaseUid);
     if (!peers.length) throw new Error('A chat must have at least one other participant.');
 
     const machine = await this.getMachine(firebaseUid);
-    await this.publishInitialDeviceKeys(firebaseUid);
+    await this.publishInitialDeviceKeysUnlocked(firebaseUid);
 
     const matrixToFirebaseUid = new Map<string, string>();
     const allFirebaseUids = [firebaseUid, ...peers];
@@ -369,10 +407,14 @@ class MatrixCryptoService {
           const algorithm = keyId.split(':', 1)[0];
           oneTimeKeyCounts[algorithm] = (oneTimeKeyCounts[algorithm] ?? 0) + 1;
         }
+        const unusedFallbackKeyTypes = await deviceRegistryService.getUnusedFallbackKeyTypes(firebaseUid, senderDeviceId);
         await machine.markRequestAsSent(
           request.id,
           request.type,
-          JSON.stringify({ one_time_key_counts: oneTimeKeyCounts }),
+          JSON.stringify({
+            one_time_key_counts: oneTimeKeyCounts,
+            unused_fallback_key_types: unusedFallbackKeyTypes,
+          }),
         );
       } else if (request instanceof ToDeviceRequest) {
         await this.processToDevice(
@@ -428,15 +470,17 @@ class MatrixCryptoService {
     plaintext: string,
   ): Promise<string> {
     await this.processPendingDeviceEvents(firebaseUid, chatId);
-    const machine = await this.getMachine(firebaseUid);
-    const roomId = await this.prepareChatRoomKey(firebaseUid, peerFirebaseUids, chatId);
-    const content = JSON.stringify({ msgtype: 'm.text', body: plaintext });
-    const encrypted = await machine.encryptRoomEvent(roomId, 'm.room.message', content);
-    if (!encrypted) throw new Error('The Matrix SDK returned an empty encrypted message.');
-    return JSON.stringify({
-      roomId: roomId.toString(),
-      eventId: messageId,
-      content: JSON.parse(encrypted),
+    return this.withAccountLock(firebaseUid, async () => {
+      const machine = await this.getMachine(firebaseUid);
+      const roomId = await this.prepareChatRoomKeyUnlocked(firebaseUid, peerFirebaseUids, chatId);
+      const content = JSON.stringify({ msgtype: 'm.text', body: plaintext });
+      const encrypted = await machine.encryptRoomEvent(roomId, 'm.room.message', content);
+      if (!encrypted) throw new Error('The Matrix SDK returned an empty encrypted message.');
+      return JSON.stringify({
+        roomId: roomId.toString(),
+        eventId: messageId,
+        content: JSON.parse(encrypted),
+      });
     });
   }
 
@@ -448,6 +492,7 @@ class MatrixCryptoService {
     encryptedPayload: string,
   ): Promise<string> {
     await this.processPendingDeviceEvents(firebaseUid, chatId);
+    return this.withAccountLock(firebaseUid, async () => {
     const machine = await this.getMachine(firebaseUid);
     const payload = JSON.parse(encryptedPayload) as {
       roomId?: string;
@@ -479,6 +524,7 @@ class MatrixCryptoService {
       throw new Error('The decrypted Matrix event did not contain a text message.');
     }
     return decryptedEvent.content.body;
+    });
   }
 
 
@@ -491,7 +537,9 @@ class MatrixCryptoService {
     const active = this.inboxProcessing.get(key);
     if (active) return active;
 
-    const task = this.processPendingDeviceEventsInternal(firebaseUid, chatId);
+    const task = this.withAccountLock(firebaseUid, () =>
+      this.processPendingDeviceEventsInternal(firebaseUid, chatId)
+    );
     this.inboxProcessing.set(key, task);
     try {
       return await task;
@@ -557,7 +605,7 @@ class MatrixCryptoService {
       JSON.stringify(events),
       new DeviceLists([], []),
       new Map<string, number>(),
-      undefined,
+      await deviceRegistryService.getUnusedFallbackKeyTypes(firebaseUid, deviceId).then((types) => new Set(types)),
       undefined,
     );
 
@@ -571,7 +619,7 @@ class MatrixCryptoService {
     }
 
     // Handle protocol work generated while processing the incoming events.
-    await this.publishInitialDeviceKeys(firebaseUid);
+    await this.publishInitialDeviceKeysUnlocked(firebaseUid);
     const outgoing = await machine.outgoingRequests();
     for (const request of outgoing) {
       if (request instanceof KeysQueryRequest) {
