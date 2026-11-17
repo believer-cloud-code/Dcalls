@@ -200,7 +200,6 @@ export const deviceRegistryService = {
 
     // Matrix fallback keys are reusable until replaced, and are returned only
     // after the one-time-key pool for this algorithm is exhausted.
-    const deviceSnapshot = await getDoc(doc(db, 'users', ownerUid, 'devices', deviceId));
     const fallbackKeys = deviceSnapshot.data()?.fallbackKeys as Record<string, Record<string, unknown>> | undefined;
     if (fallbackKeys) {
       const fallbackEntry = Object.entries(fallbackKeys).find(([keyId, key]) =>
