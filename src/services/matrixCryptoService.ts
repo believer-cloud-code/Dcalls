@@ -499,6 +499,21 @@ class MatrixCryptoService {
       events.push(event);
     }
 
+    // Load the sender device identities before accepting their to-device
+    // events into the local Olm state machine.
+    const senderUserIds = await Promise.all(
+      [...matrixToFirebaseUid.entries()]
+        .filter(([matrixUserId, uid]) => uid !== firebaseUid)
+        .map(([matrixUserId]) => new UserId(matrixUserId)),
+    );
+    if (senderUserIds.length) {
+      const queryRequest = machine.queryKeysForUsers(senderUserIds);
+      if (!(queryRequest instanceof KeysQueryRequest)) {
+        throw new Error('The Matrix SDK did not produce a sender-device query request.');
+      }
+      await this.processKeysQuery(machine, queryRequest, matrixToFirebaseUid);
+    }
+
     // MSC4186 semantics let us process device events without falsely telling
     // the SDK that the server has zero one-time keys remaining.
     await machine.receiveSyncChangesMsc4186(
