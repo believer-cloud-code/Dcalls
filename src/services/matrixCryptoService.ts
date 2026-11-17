@@ -173,6 +173,8 @@ class MatrixCryptoService {
         if (!keys) continue;
         // Do not let a registry document advertise keys for another identity.
         if (keys.user_id !== matrixUserId || keys.device_id !== device.id) continue;
+        const requestedDeviceIds = body.device_keys?.[matrixUserId] ?? [];
+        if (requestedDeviceIds.length && !requestedDeviceIds.includes(device.id)) continue;
         userDevices[device.id] = keys;
       }
       response.device_keys[matrixUserId] = userDevices;
@@ -279,6 +281,7 @@ class MatrixCryptoService {
     await this.publishInitialDeviceKeys(firebaseUid);
 
     const matrixToFirebaseUid = new Map<string, string>();
+    matrixToFirebaseUid.set(await stableMatrixUserId(firebaseUid), firebaseUid);
     const userIds: UserId[] = [];
     for (const peerUid of peers) {
       const matrixUserId = await stableMatrixUserId(peerUid);
