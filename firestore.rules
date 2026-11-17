@@ -56,6 +56,61 @@ service cloud.firestore {
       allow create: if isOwner(userId) && isValidUser(request.resource.data);
       allow update: if isOwner(userId) && isValidUser(request.resource.data);
 
+      match /deviceLinkSessions/{sessionId} {
+        allow get: if isOwner(userId);
+        allow list: if false;
+        allow create: if isOwner(userId) &&
+          request.resource.data.ownerUid == userId &&
+          request.resource.data.sourceDeviceId is string &&
+          request.resource.data.hpkePublicKey is string &&
+          request.resource.data.state == 'waiting' &&
+          request.resource.data.expiresAt is timestamp &&
+          request.resource.data.expiresAt > request.time &&
+          request.resource.data.expiresAt <= request.time + duration.value(6, 'm');
+        allow update: if isOwner(userId) &&
+          request.resource.data.ownerUid == resource.data.ownerUid &&
+          request.resource.data.sourceDeviceId == resource.data.sourceDeviceId &&
+          request.resource.data.hpkePublicKey == resource.data.hpkePublicKey &&
+          request.resource.data.expiresAt == resource.data.expiresAt &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'state', 'joinedDeviceId', 'updatedAt', 'verifiedAt'
+          ]) &&
+          (
+            (resource.data.state == 'waiting' &&
+              request.resource.data.state == 'joined' &&
+              request.resource.data.joinedDeviceId is string) ||
+            (resource.data.state == 'joined' &&
+              request.resource.data.state == 'accepted') ||
+            (resource.data.state == 'accepted' &&
+              request.resource.data.state == 'verified') ||
+            (resource.data.state in ['waiting', 'joined', 'accepted'] &&
+              request.resource.data.state == 'cancelled')
+          );
+        allow delete: if isOwner(userId) &&
+          resource.data.state != 'verified';
+
+        match /messages/{messageId} {
+          allow read: if isOwner(userId);
+          allow create: if isOwner(userId) &&
+            get(/databases/$(database)/documents/users/$(userId)/deviceLinkSessions/$(sessionId)).data.expiresAt > request.time &&
+            request.resource.data.ciphertext is string &&
+            request.resource.data.ciphertext.size() <= 200000 &&
+            (
+              (messageId == 'join' &&
+                getAfter(/databases/$(database)/documents/users/$(userId)/deviceLinkSessions/$(sessionId)).data.state == 'joined' &&
+                request.resource.data.senderDeviceId is string &&
+                request.resource.data.senderDeviceId != get(/databases/$(database)/documents/users/$(userId)/deviceLinkSessions/$(sessionId)).data.sourceDeviceId &&
+                request.resource.data.senderDeviceId == getAfter(/databases/$(database)/documents/users/$(userId)/deviceLinkSessions/$(sessionId)).data.joinedDeviceId) ||
+              (messageId == 'accept' &&
+                get(/databases/$(database)/documents/users/$(userId)/deviceLinkSessions/$(sessionId)).data.state == 'joined' &&
+                getAfter(/databases/$(database)/documents/users/$(userId)/deviceLinkSessions/$(sessionId)).data.state == 'accepted') ||
+              (messageId == 'final' &&
+                get(/databases/$(database)/documents/users/$(userId)/deviceLinkSessions/$(sessionId)).data.state == 'accepted')
+            );
+          allow update, delete: if false;
+        }
+      }
+
       match /crossSigning/{identityId} {
         // Cross-signing public keys and signatures are public verification
         // material; private signing seeds must never be stored here.
