@@ -114,13 +114,19 @@ service cloud.firestore {
           allow read: if isAuthenticated();
           allow create: if isOwner(userId) &&
             request.resource.data.key is map &&
+            request.resource.data.keyId is string &&
+            request.resource.data.algorithm is string &&
             request.resource.data.claimedBy == null;
           // A key can be claimed once by a participant in a shared chat.
+          // Claimants cannot alter the published key material or its identity.
           allow update: if isAuthenticated() &&
             resource.data.claimedBy == null &&
             request.resource.data.claimedBy == request.auth.uid &&
             request.resource.data.claimedAt == request.time &&
             request.resource.data.key == resource.data.key &&
+            request.resource.data.keyId == resource.data.keyId &&
+            request.resource.data.algorithm == resource.data.algorithm &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['claimedBy', 'chatId', 'claimedAt']) &&
             request.resource.data.chatId is string &&
             exists(/databases/$(database)/documents/chats/$(request.resource.data.chatId)) &&
             request.auth.uid in get(/databases/$(database)/documents/chats/$(request.resource.data.chatId)).data.participants &&
