@@ -11,6 +11,7 @@ import {
   getDoc,
   setDoc,
   updateDoc,
+  deleteDoc,
   serverTimestamp,
   Timestamp,
 } from 'firebase/firestore';
@@ -182,4 +183,17 @@ test('a revoked device cannot create a new QR pairing session', async () => {
     expiresAt: Timestamp.fromMillis(Date.now() + 4 * 60 * 1000),
     createdAt: serverTimestamp(),
   }));
+});
+
+
+test('encrypted device inbox events are append-only and recipient-owned', async () => {
+  const eventRef = doc(bob(), 'users/alice/devices/alice-device/inbox/event-1');
+  await assertSucceeds(setDoc(eventRef, {
+    senderUid: 'bob', chatId: 'chat-1', payload: 'encrypted-event',
+    createdAt: serverTimestamp(), protocol: 'matrix-olm-megolm',
+  }));
+
+  await assertFails(updateDoc(eventRef, { payload: 'tampered-ciphertext' }));
+  await assertFails(deleteDoc(eventRef));
+  await assertSucceeds(deleteDoc(doc(alice(), 'users/alice/devices/alice-device/inbox/event-1')));
 });
