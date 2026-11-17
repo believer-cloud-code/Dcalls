@@ -29,7 +29,9 @@ export interface Message {
   type: 'text' | 'image' | 'audio' | 'system' | 'file';
   isAi?: boolean;
   isEncrypted?: boolean;
-  encryptionMethod?: 'rsa' | 'symmetric';
+  encryptionMethod?: 'rsa' | 'symmetric' | 'matrix-megolm';
+  cryptoVersion?: number;
+  attachmentEncrypted?: boolean;
   fileUrl?: string;
   // Extended statuses include optimistic and error states used by the UI
   status?: 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
