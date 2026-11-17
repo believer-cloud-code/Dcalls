@@ -155,12 +155,7 @@ class MatrixCryptoService {
         fallbackKeys: body.fallback_keys,
       });
 
-      const oneTimeKeyCounts: Record<string, number> = {};
-      for (const keyId of Object.keys(body.one_time_keys ?? {})) {
-        const algorithm = keyId.split(':', 1)[0];
-        oneTimeKeyCounts[algorithm] = (oneTimeKeyCounts[algorithm] ?? 0) + 1;
-      }
-
+      const oneTimeKeyCounts = await deviceRegistryService.getOneTimeKeyCounts(firebaseUid, deviceId);
       const unusedFallbackKeyTypes = await deviceRegistryService.getUnusedFallbackKeyTypes(firebaseUid, deviceId);
       await machine.markRequestAsSent(
         request.id,
@@ -402,11 +397,7 @@ class MatrixCryptoService {
           oneTimeKeys: body.one_time_keys ?? {},
           fallbackKeys: body.fallback_keys,
         });
-        const oneTimeKeyCounts: Record<string, number> = {};
-        for (const keyId of Object.keys(body.one_time_keys ?? {})) {
-          const algorithm = keyId.split(':', 1)[0];
-          oneTimeKeyCounts[algorithm] = (oneTimeKeyCounts[algorithm] ?? 0) + 1;
-        }
+        const oneTimeKeyCounts = await deviceRegistryService.getOneTimeKeyCounts(firebaseUid, senderDeviceId);
         const unusedFallbackKeyTypes = await deviceRegistryService.getUnusedFallbackKeyTypes(firebaseUid, senderDeviceId);
         await machine.markRequestAsSent(
           request.id,
@@ -559,7 +550,6 @@ class MatrixCryptoService {
     const machine = await this.getMachine(firebaseUid);
     const deviceId = await this.getDeviceId(firebaseUid);
     const inbox = await deviceRegistryService.listPendingDeviceEvents(firebaseUid, deviceId, chatId);
-    if (!inbox.length) return 0;
 
     const matrixToFirebaseUid = new Map<string, string>();
     matrixToFirebaseUid.set(await stableMatrixUserId(firebaseUid), firebaseUid);
@@ -604,7 +594,7 @@ class MatrixCryptoService {
     await machine.receiveSyncChangesMsc4186(
       JSON.stringify(events),
       new DeviceLists([], []),
-      new Map<string, number>(),
+      await deviceRegistryService.getOneTimeKeyCounts(firebaseUid, deviceId).then((counts) => new Map(Object.entries(counts))),
       await deviceRegistryService.getUnusedFallbackKeyTypes(firebaseUid, deviceId).then((types) => new Set(types)),
       undefined,
     );
