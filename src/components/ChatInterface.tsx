@@ -925,6 +925,11 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                   ) : (
                     <div className="p-4 text-xs text-gray-400">
                       {attachmentLoading ? 'Decrypting secure image…' : 'Encrypted image — waiting for its key'}
+                      {attachmentMetadata && !attachmentLoading && (
+                        <button onClick={openEncryptedAttachment} className="block mt-2 text-indigo-300 underline">
+                          Retry image decryption
+                        </button>
+                      )}
                     </div>
                   )
                 ) : (
