@@ -48,9 +48,10 @@ export class CryptoService {
       this.keyPair = { publicKey, privateKey };
       this.publicKeyJWK = stored.publicJWK;
       return true;
-    } catch {
-      localStorage.removeItem(STORAGE_KEY);
-      return false;
+    } catch (error) {
+      // Never silently discard a damaged key and generate a replacement.
+      // The registered public key may still identify this device to other users.
+      throw new Error('The saved Dcalls encryption key could not be loaded. It was preserved to prevent an identity reset.', { cause: error });
     }
   }
 
@@ -112,6 +113,14 @@ export class CryptoService {
 
   public getPublicKey(): JsonWebKey | null {
     return this.publicKeyJWK;
+  }
+
+  public hasStoredKeyPair(): boolean {
+    try {
+      return localStorage.getItem(STORAGE_KEY) !== null;
+    } catch {
+      return false;
+    }
   }
 
   /** Shared secret for AES messages in a 1:1 chat */
