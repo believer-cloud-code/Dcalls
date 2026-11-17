@@ -292,7 +292,8 @@ service cloud.firestore {
         }
 
         match /inbox/{eventId} {
-          allow read, update, delete: if isOwner(userId);
+          allow read, delete: if isOwner(userId);
+          // Inbox events are append-only; processing acknowledges by deleting them.
           allow create: if isAuthenticated() &&
             !('revokedAt' in get(/databases/$(database)/documents/users/$(userId)/devices/$(deviceId)).data) &&
             request.resource.data.senderUid == request.auth.uid &&
