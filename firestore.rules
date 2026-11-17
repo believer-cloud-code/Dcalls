@@ -105,7 +105,11 @@ service cloud.firestore {
                 get(/databases/$(database)/documents/users/$(userId)/deviceLinkSessions/$(sessionId)).data.state == 'joined' &&
                 getAfter(/databases/$(database)/documents/users/$(userId)/deviceLinkSessions/$(sessionId)).data.state == 'accepted') ||
               (messageId == 'final' &&
-                get(/databases/$(database)/documents/users/$(userId)/deviceLinkSessions/$(sessionId)).data.state == 'accepted')
+                get(/databases/$(database)/documents/users/$(userId)/deviceLinkSessions/$(sessionId)).data.state == 'accepted') ||
+              (messageId == 'secrets' &&
+                get(/databases/$(database)/documents/users/$(userId)/deviceLinkSessions/$(sessionId)).data.state == 'verified') ||
+              (messageId == 'secretsAck' &&
+                get(/databases/$(database)/documents/users/$(userId)/deviceLinkSessions/$(sessionId)).data.state == 'verified')
             );
           allow update, delete: if false;
         }
