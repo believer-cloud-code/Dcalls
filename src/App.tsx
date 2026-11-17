@@ -36,6 +36,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { startForegroundMessageListener } from './services/notificationService';
 import { FeatureErrorBoundary } from './components/FeatureErrorBoundary';
 import { saveCallHistory } from './services/callHistoryService';
+import { matrixCryptoService } from './services/matrixCryptoService';
 
 export default function App() {
   const [user, setUser] = useState<UnifiedUser | null>(null);
@@ -94,6 +95,19 @@ export default function App() {
       unsubscribe();
     };
   }, []);
+
+  // Register this installation's public Matrix device keys after account
+  // authentication. This lets other devices establish encrypted sessions even
+  // before the user opens a particular conversation.
+  useEffect(() => {
+    if (!user || !isRegistered) return;
+
+    matrixCryptoService.publishInitialDeviceKeys(user.uid).catch((error) => {
+      // Registration remains pending in the local Matrix store and is retried
+      // by the next chat key-exchange operation.
+      console.warn('Encrypted device registration is pending:', error);
+    });
+  }, [user?.uid, isRegistered]);
 
   // Resolve the authenticated user's profile independently from the auth event.
   // A read failure is not evidence that the user needs to register.
