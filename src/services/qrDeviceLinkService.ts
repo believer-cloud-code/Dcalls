@@ -239,16 +239,19 @@ class QrDeviceLinkService {
       aadFor(sessionId),
     );
     source.channel = accepted.channel;
-    await setDoc(messageRef(uid, sessionId, 'accept'), {
-      ciphertext: accepted.initialResponse,
-      createdAt: serverTimestamp(),
-    });
     await runTransaction(db, async (transaction) => {
-      const current = await transaction.get(sessionRef(uid, sessionId));
-      if (!current.exists() || current.data().state !== 'joined') {
-        throw new Error('The pairing session changed before it could be accepted.');
+      const ref = sessionRef(uid, sessionId);
+      const current = await transaction.get(ref);
+      const acceptRef = messageRef(uid, sessionId, 'accept');
+      const existingAccept = await transaction.get(acceptRef);
+      if (!current.exists() || current.data().state !== 'joined' || existingAccept.exists()) {
+        throw new Error('The pairing session changed or was already accepted.');
       }
-      transaction.update(sessionRef(uid, sessionId), { state: 'accepted', updatedAt: serverTimestamp() });
+      transaction.set(acceptRef, {
+        ciphertext: accepted.initialResponse,
+        createdAt: serverTimestamp(),
+      });
+      transaction.update(ref, { state: 'accepted', updatedAt: serverTimestamp() });
     });
     return checkCode(accepted.channel);
   }
