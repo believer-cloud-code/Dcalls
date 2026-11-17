@@ -31,6 +31,7 @@ export const DeviceLinkingPanel: React.FC<DeviceLinkingPanelProps> = ({ userId }
   const [cameraActive, setCameraActive] = useState(false);
   const [bundleSent, setBundleSent] = useState(false);
   const [bundleReceived, setBundleReceived] = useState(false);
+  const [receiptVerified, setReceiptVerified] = useState(false);
   const [sourceAccepted, setSourceAccepted] = useState(false);
   const [scannerCompleted, setScannerCompleted] = useState(false);
   const [sourceVerified, setSourceVerified] = useState(false);
@@ -146,6 +147,7 @@ export const DeviceLinkingPanel: React.FC<DeviceLinkingPanelProps> = ({ userId }
     setExpiresAt(created.expiresAt);
     setVerificationCode('');
     setBundleSent(false);
+    setReceiptVerified(false);
     setSourceAccepted(false);
     setSourceVerified(false);
     setStatus('QR ready. Scan it using your new Dcalls device.');
@@ -208,6 +210,7 @@ export const DeviceLinkingPanel: React.FC<DeviceLinkingPanelProps> = ({ userId }
     if (!sessionId) throw new Error('No pairing session is active.');
     const received = await qrDeviceLinkService.verifySecretsBundleReceipt(userId, sessionId);
     if (!received) throw new Error('The new device has not confirmed the key import yet.');
+    setReceiptVerified(true);
     setStatus('New device confirmed account signing-key import and device signing.');
   });
 
@@ -219,6 +222,7 @@ export const DeviceLinkingPanel: React.FC<DeviceLinkingPanelProps> = ({ userId }
     setVerificationCode('');
     setBundleSent(false);
     setBundleReceived(false);
+    setReceiptVerified(false);
     setSourceAccepted(false);
     setScannerCompleted(false);
     setSourceVerified(false);
@@ -287,7 +291,7 @@ export const DeviceLinkingPanel: React.FC<DeviceLinkingPanelProps> = ({ userId }
                       Transfer account signing keys
                     </button>
                   )}
-                  {bundleSent && (
+                  {bundleSent && !receiptVerified && (
                     <button disabled={busy} onClick={checkAccountKeysReceipt} className="w-full rounded-xl border border-white/10 py-3 text-xs font-bold disabled:opacity-50">
                       Check new-device confirmation
                     </button>
