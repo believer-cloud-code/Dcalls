@@ -624,6 +624,13 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     const [decryptedText, setDecryptedText] = useState<string>(msg.text);
     const [decryptionStatus, setDecryptionStatus] = useState<'idle' | 'decrypting' | 'success' | 'failed'>('idle');
     const matrixDecryptInProgressRef = useRef(false);
+    const [attachmentMetadata, setAttachmentMetadata] = useState<{
+      fileName: string;
+      fileType: string;
+      mediaEncryptionInfo: string;
+    } | null>(null);
+    const [attachmentBlobUrl, setAttachmentBlobUrl] = useState<string | null>(null);
+    const [attachmentLoading, setAttachmentLoading] = useState(false);
 
     const decrypt = async () => {
       // Check shared cache first to avoid re-decrypting the same message repeatedly
@@ -652,7 +659,24 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             msg.id,
             msg.text,
           );
-          setDecryptedText(decrypted);
+          if ((msg.type === 'image' || msg.type === 'file') && (msg as any).attachmentEncrypted) {
+            const metadata = JSON.parse(decrypted) as {
+              fileName?: string;
+              fileType?: string;
+              mediaEncryptionInfo?: string;
+            };
+            if (!metadata.fileName || !metadata.mediaEncryptionInfo) {
+              throw new Error('The encrypted attachment metadata is incomplete.');
+            }
+            setAttachmentMetadata({
+              fileName: metadata.fileName,
+              fileType: metadata.fileType || 'application/octet-stream',
+              mediaEncryptionInfo: metadata.mediaEncryptionInfo,
+            });
+            setDecryptedText(metadata.fileName);
+          } else {
+            setDecryptedText(decrypted);
+          }
           // Keep Matrix plaintext in memory only; never persist it as a local
           // plaintext recovery mechanism.
           decryptedCache.set(msg.id, decrypted);
@@ -727,6 +751,47 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         setDecryptionStatus('idle');
       }
     };
+
+    const openEncryptedAttachment = async () => {
+      if (!attachmentMetadata || !msg.fileUrl || attachmentBlobUrl || attachmentLoading) return;
+      setAttachmentLoading(true);
+      try {
+        const response = await fetch(msg.fileUrl);
+        if (!response.ok) throw new Error(`Attachment download failed (${response.status}).`);
+        const encryptedBytes = new Uint8Array(await response.arrayBuffer());
+        const plaintextBytes = matrixCryptoService.decryptAttachment(
+          encryptedBytes,
+          attachmentMetadata.mediaEncryptionInfo,
+        );
+        const plaintextBuffer = plaintextBytes.buffer.slice(
+          plaintextBytes.byteOffset,
+          plaintextBytes.byteOffset + plaintextBytes.byteLength,
+        ) as ArrayBuffer;
+        const blob = new Blob([plaintextBuffer], { type: attachmentMetadata.fileType });
+        const url = URL.createObjectURL(blob);
+        setAttachmentBlobUrl((previous) => {
+          if (previous) URL.revokeObjectURL(previous);
+          return url;
+        });
+      } catch (error) {
+        console.error('Encrypted attachment decryption failed', error);
+        setAiError(error instanceof Error ? error.message : 'Could not decrypt this attachment.');
+      } finally {
+        setAttachmentLoading(false);
+      }
+    };
+
+    useEffect(() => {
+      if (msg.type === 'image' && (msg as any).attachmentEncrypted && attachmentMetadata) {
+        openEncryptedAttachment();
+      }
+    }, [msg.type, (msg as any).attachmentEncrypted, attachmentMetadata, msg.fileUrl]);
+
+    useEffect(() => {
+      return () => {
+        if (attachmentBlobUrl) URL.revokeObjectURL(attachmentBlobUrl);
+      };
+    }, [attachmentBlobUrl]);
 
     const lastMsgTextRef = useRef<string | null>(null);
     useEffect(() => {
