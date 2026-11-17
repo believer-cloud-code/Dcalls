@@ -295,6 +295,7 @@ export const DeviceLinkingPanel: React.FC<DeviceLinkingPanelProps> = ({ userId }
                   <p className="text-[10px] uppercase tracking-widest text-indigo-300">Device requesting access</p>
                   <p className="text-xs font-semibold break-words">{joinInfo.deviceName}</p>
                   <p className="text-[9px] text-gray-500 break-all">Device ID: {joinInfo.deviceId}</p>
+                  <p className="text-[10px] leading-relaxed text-amber-300">The client label is self-reported, not proof of identity. Only approve after comparing the verification code on both devices.</p>
                   <button disabled={busy} onClick={acceptJoin} className="w-full rounded-xl bg-indigo-600 py-3 text-xs font-bold disabled:opacity-50">
                     Approve this device
                   </button>
