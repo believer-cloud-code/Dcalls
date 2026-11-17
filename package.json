@@ -64,7 +64,7 @@
     "react-router-dom": "^7.13.1",
     "remark-gfm": "^4.0.1",
     "tailwind-merge": "^3.5.0",
-    "@matrix-org/matrix-sdk-crypto-wasm": "19.0.1"
+    "@matrix-org/matrix-sdk-crypto-wasm": "18.9.2"
   },
   "devDependencies": {
     "@capacitor/assets": "^3.0.5",
