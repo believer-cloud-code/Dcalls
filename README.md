@@ -44,6 +44,16 @@ Dcalls combines real-time communication with artificial intelligence to create a
 * Firebase Hosting
 * Real-time synchronization
 
+### 🔐 End-to-End Encryption
+
+* User-to-user messages and media use the Matrix Rust crypto SDK (Olm/Megolm).
+* Each installation has its own device identity and one-time/fallback prekeys.
+* Account cross-signing keys support trusted device identity.
+* QR device pairing uses the SDK's HPKE channel and matching verification codes.
+* Devices can be revoked; revoked devices are excluded from new key distribution and inbox delivery.
+
+AI conversations are a separate service path and are not represented as end-to-end encrypted user-to-user messages. Device linking and Firestore security rules still require emulator and real two-device validation before deployment.
+
 ### 📱 Modern Experience
 
 * Responsive design
