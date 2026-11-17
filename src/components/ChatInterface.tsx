@@ -218,11 +218,32 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   };
 
   const ensureEncryptionReady = async () => {
+    const user = auth.currentUser;
+    if (!user) throw new Error('Sign in before using encrypted messaging.');
+
     const crypto = CryptoService.getInstance();
-    const publicKey = await crypto.ensureKeyPair();
-    if (auth.currentUser) {
-      await setDoc(doc(db, 'users', auth.currentUser.uid), { publicKey }, { merge: true });
+    const userRef = doc(db, 'users', user.uid);
+    const userSnapshot = await getDoc(userRef);
+    const registeredPublicKey = userSnapshot.data()?.publicKey as JsonWebKey | undefined;
+
+    // If the server already knows this account's key but this installation has
+    // lost its private key, do not create a replacement and overwrite the identity.
+    if (registeredPublicKey && !crypto.hasStoredKeyPair() && !crypto.getPublicKey()) {
+      throw new Error('This device is missing its original encryption key. Dcalls will not replace your registered identity automatically.');
     }
+
+    const publicKey = await crypto.ensureKeyPair();
+    if (registeredPublicKey) {
+      const stableKey = (key: JsonWebKey) => JSON.stringify(
+        Object.keys(key).sort().map((name) => [name, (key as any)[name]])
+      );
+      if (stableKey(registeredPublicKey) !== stableKey(publicKey)) {
+        throw new Error('This device encryption key does not match the account identity. The registered key was left unchanged.');
+      }
+    } else {
+      await setDoc(userRef, { publicKey }, { merge: true });
+    }
+
     return crypto;
   };
 
