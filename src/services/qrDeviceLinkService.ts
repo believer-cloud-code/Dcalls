@@ -273,9 +273,21 @@ class QrDeviceLinkService {
       String(accepted.data().ciphertext ?? ''),
       aadFor(sessionId),
     );
+    const acceptedMessage = JSON.parse(result.initialResponse) as Record<string, unknown>;
+    if (
+      acceptedMessage.protocol !== PROTOCOL ||
+      acceptedMessage.version !== VERSION ||
+      acceptedMessage.type !== 'accept'
+    ) {
+      throw new Error('The existing device returned an invalid HPKE handshake response.');
+    }
     scanner.channel = result.channel;
+    const finalCiphertext = result.channel.seal(
+      JSON.stringify({ protocol: PROTOCOL, version: VERSION, type: 'final-ack' }),
+      aadFor(sessionId),
+    );
     await setDoc(messageRef(uid, sessionId, 'final'), {
-      ciphertext: result.initialResponse,
+      ciphertext: finalCiphertext,
       createdAt: serverTimestamp(),
     });
     return checkCode(result.channel);
@@ -296,7 +308,7 @@ class QrDeviceLinkService {
     if (
       message.protocol !== PROTOCOL ||
       message.version !== VERSION ||
-      message.type !== 'accept'
+      message.type !== 'final-ack'
     ) {
       throw new Error('The final pairing acknowledgement is invalid.');
     }
