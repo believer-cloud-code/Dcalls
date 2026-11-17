@@ -161,7 +161,7 @@ export const deviceRegistryService = {
         return runTransaction(db, async (transaction) => {
           const existing = await transaction.get(keyRef);
           if (!existing.exists()) {
-            transaction.set(keyRef, { keyId, algorithm: keyId.split(':', 1)[0], key, claimedBy: null, createdAt: serverTimestamp() });
+            transaction.set(keyRef, { keyId, keyDocumentId: encodeURIComponent(keyId), algorithm: keyId.split(':', 1)[0], key, claimedBy: null, createdAt: serverTimestamp() });
           }
         });
       });
@@ -256,6 +256,7 @@ export const deviceRegistryService = {
       if (!existing.exists()) {
         transaction.set(usageRef, {
           keyId,
+          usageDocumentId: encodeURIComponent(keyId),
           algorithm: keyId.split(':', 1)[0],
           chatId,
           claimedBy: claimantUid,
