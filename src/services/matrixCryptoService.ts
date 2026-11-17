@@ -269,6 +269,18 @@ class MatrixCryptoService {
   async exportSecretsBundleForDeviceLink(firebaseUid: string): Promise<string> {
     return this.withAccountLock(firebaseUid, async () => {
       const machine = await this.getMachine(firebaseUid);
+      const status = await machine.crossSigningStatus();
+      if (!status.hasMaster || !status.hasSelfSigning || !status.hasUserSigning) {
+        throw new Error('The account cross-signing identity is not fully available on this device.');
+      }
+      const identity = await machine.getIdentity(new UserId(await stableMatrixUserId(firebaseUid))) as
+        | { isVerified: () => boolean; free: () => void }
+        | undefined;
+      if (!identity?.isVerified()) {
+        identity?.free();
+        throw new Error('The account cross-signing identity must be verified before exporting its secrets.');
+      }
+      identity.free();
       const bundle = await machine.exportSecretsBundle();
       try {
         return JSON.stringify(bundle.to_json());
@@ -288,6 +300,14 @@ class MatrixCryptoService {
       if (!status.hasMaster || !status.hasSelfSigning || !status.hasUserSigning) {
         throw new Error('The imported account signing keys are incomplete.');
       }
+      const identity = await machine.getIdentity(new UserId(await stableMatrixUserId(firebaseUid))) as
+        | { isVerified: () => boolean; free: () => void }
+        | undefined;
+      if (!identity?.isVerified()) {
+        identity?.free();
+        throw new Error('The imported account identity is not verified by the Matrix SDK.');
+      }
+      identity.free();
     });
     await this.signCurrentDeviceForCrossSigning(firebaseUid);
   }
@@ -301,11 +321,18 @@ class MatrixCryptoService {
         user: UserId,
         device: DeviceId,
         timeoutSeconds?: number,
-      ) => Promise<{ verify: () => Promise<{ body: string }>; free: () => void } | undefined>;
+      ) => Promise<{
+        verify: () => Promise<{ body: string }>;
+        isLocallyTrusted?: () => boolean;
+        free: () => void;
+      } | undefined>;
       const device = await getDevice.call(machine, userId, deviceId);
       if (!device) throw new Error('The local Matrix device is not registered in the crypto store.');
       try {
         const signatureRequest = await device.verify();
+        if (device.isLocallyTrusted && !device.isLocallyTrusted()) {
+          throw new Error('The Matrix SDK did not mark the new device as locally trusted.');
+        }
         const signatures = JSON.parse(signatureRequest.body) as Record<string, unknown>;
         await deviceRegistryService.publishCrossSigningSignatures(firebaseUid, signatures);
       } finally {
