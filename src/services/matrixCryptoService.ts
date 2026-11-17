@@ -1,10 +1,12 @@
 import {
   DeviceId,
   initAsync,
+  KeysUploadRequest,
   OlmMachine,
   UserId,
 } from '@matrix-org/matrix-sdk-crypto-wasm';
 import { getMatrixStorePassphrase } from './cryptoStoreVault';
+import { deviceRegistryService } from './deviceRegistryService';
 
 const DEVICE_ID_PREFIX = 'dcalls_matrix_device_v1_';
 const MATRIX_DOMAIN = 'dcalls.local';
@@ -82,6 +84,54 @@ class MatrixCryptoService {
       activeUserId = null;
       throw error;
     }
+  }
+
+
+  /**
+   * Publishes the SDK-generated public device identity and pre-keys.
+   * This is only the /keys/upload stage of the transport adapter; key query,
+   * key claim, to-device delivery and sync are deliberately not implied here.
+   */
+  async publishInitialDeviceKeys(firebaseUid: string): Promise<boolean> {
+    const machine = await this.getMachine(firebaseUid);
+    const requests = await machine.outgoingRequests();
+    let published = false;
+
+    for (const request of requests) {
+      if (!(request instanceof KeysUploadRequest)) continue;
+
+      const body = JSON.parse(request.body) as {
+        device_keys?: Record<string, unknown>;
+        one_time_keys?: Record<string, Record<string, unknown>>;
+        fallback_keys?: Record<string, Record<string, unknown>>;
+      };
+
+      if (!body.device_keys || typeof body.device_keys !== 'object') {
+        throw new Error('The Matrix SDK generated an invalid device-key upload request.');
+      }
+
+      const deviceId = this.getDeviceId(firebaseUid);
+      await deviceRegistryService.publishDeviceKeys(firebaseUid, deviceId, {
+        deviceKeys: body.device_keys,
+        oneTimeKeys: body.one_time_keys ?? {},
+        fallbackKeys: body.fallback_keys ?? {},
+      });
+
+      const oneTimeKeyCounts: Record<string, number> = {};
+      for (const keyId of Object.keys(body.one_time_keys ?? {})) {
+        const algorithm = keyId.split(':', 1)[0];
+        oneTimeKeyCounts[algorithm] = (oneTimeKeyCounts[algorithm] ?? 0) + 1;
+      }
+
+      await machine.markRequestAsSent(
+        request.id,
+        request.type,
+        JSON.stringify({ one_time_key_counts: oneTimeKeyCounts })
+      );
+      published = true;
+    }
+
+    return published;
   }
 
   async getDeviceId(firebaseUid: string): Promise<string> {
