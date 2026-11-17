@@ -197,3 +197,87 @@ test('encrypted device inbox events are append-only and recipient-owned', async 
   await assertFails(deleteDoc(eventRef));
   await assertSucceeds(deleteDoc(doc(alice(), 'users/alice/devices/alice-device/inbox/event-1')));
 });
+
+
+test('QR pairing enforces the complete one-way handshake lifecycle', async () => {
+  await env.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), 'users/alice/devices/new-device'), {
+      deviceId: 'new-device',
+      deviceKeys: { device_id: 'new-device' },
+    });
+  });
+
+  const sessionId = 'abcdef0123456789abcdef0123456789';
+  const sessionRef = doc(alice(), 'users/alice/deviceLinkSessions', sessionId);
+  const messages = (name) => doc(alice(), 'users/alice/deviceLinkSessions', sessionId, 'messages', name);
+
+  await assertSucceeds(setDoc(sessionRef, {
+    ownerUid: 'alice',
+    sourceDeviceId: 'alice-device',
+    hpkePublicKey: 'A'.repeat(48),
+    state: 'waiting',
+    expiresAt: Timestamp.fromMillis(Date.now() + 4 * 60 * 1000),
+    createdAt: serverTimestamp(),
+  }));
+
+  // A join message and the waiting -> joined transition must be atomic.
+  const joinBatch = writeBatch(alice());
+  joinBatch.set(messages('join'), {
+    senderDeviceId: 'new-device',
+    ciphertext: 'encrypted-join',
+    createdAt: serverTimestamp(),
+  });
+  joinBatch.update(sessionRef, {
+    state: 'joined',
+    joinedDeviceId: 'new-device',
+    updatedAt: serverTimestamp(),
+  });
+  await assertSucceeds(joinBatch.commit());
+
+  // The accept message must accompany joined -> accepted.
+  const acceptBatch = writeBatch(alice());
+  acceptBatch.set(messages('accept'), {
+    ciphertext: 'encrypted-accept',
+    createdAt: serverTimestamp(),
+  });
+  acceptBatch.update(sessionRef, {
+    state: 'accepted',
+    joinedDeviceId: 'new-device',
+    updatedAt: serverTimestamp(),
+  });
+  await assertSucceeds(acceptBatch.commit());
+
+  // The new device's final acknowledgement is only valid after acceptance.
+  await assertSucceeds(setDoc(messages('final'), {
+    ciphertext: 'encrypted-final',
+    createdAt: serverTimestamp(),
+  }));
+
+  await assertSucceeds(updateDoc(sessionRef, {
+    state: 'verified',
+    joinedDeviceId: 'new-device',
+    verifiedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  }));
+
+  await assertSucceeds(setDoc(messages('secrets'), {
+    senderDeviceId: 'alice-device',
+    ciphertext: 'encrypted-secrets',
+    createdAt: serverTimestamp(),
+  }));
+  await assertSucceeds(setDoc(messages('secretsAck'), {
+    senderDeviceId: 'new-device',
+    ciphertext: 'encrypted-ack',
+    createdAt: serverTimestamp(),
+  }));
+
+  // Message contents are write-once, and verified sessions cannot be
+  // cancelled after the secrets bundle has been written.
+  await assertFails(updateDoc(messages('secrets'), { ciphertext: 'replaced' }));
+  await assertFails(updateDoc(sessionRef, {
+    state: 'cancelled',
+    joinedDeviceId: 'new-device',
+    verifiedAt: (await getDoc(sessionRef)).data().verifiedAt,
+    updatedAt: serverTimestamp(),
+  }));
+});
