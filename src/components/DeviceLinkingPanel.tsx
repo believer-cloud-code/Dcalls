@@ -30,6 +30,9 @@ export const DeviceLinkingPanel: React.FC<DeviceLinkingPanelProps> = ({ userId }
   const [cameraActive, setCameraActive] = useState(false);
   const [bundleSent, setBundleSent] = useState(false);
   const [bundleReceived, setBundleReceived] = useState(false);
+  const [sourceAccepted, setSourceAccepted] = useState(false);
+  const [scannerCompleted, setScannerCompleted] = useState(false);
+  const [sourceVerified, setSourceVerified] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
@@ -121,6 +124,9 @@ export const DeviceLinkingPanel: React.FC<DeviceLinkingPanelProps> = ({ userId }
     setQrPayload(created.qrPayload);
     setExpiresAt(created.expiresAt);
     setVerificationCode('');
+    setBundleSent(false);
+    setSourceAccepted(false);
+    setSourceVerified(false);
     setStatus('QR ready. Scan it using your new Dcalls device.');
   });
 
@@ -128,6 +134,7 @@ export const DeviceLinkingPanel: React.FC<DeviceLinkingPanelProps> = ({ userId }
     if (!sessionId) throw new Error('Create a QR session first.');
     const code = await qrDeviceLinkService.acceptJoin(userId, sessionId);
     setVerificationCode(code);
+    setSourceAccepted(true);
     setStatus('New device accepted. Compare the verification code on both devices.');
   });
 
@@ -135,6 +142,7 @@ export const DeviceLinkingPanel: React.FC<DeviceLinkingPanelProps> = ({ userId }
     if (!sessionId) throw new Error('No active pairing session.');
     const code = await qrDeviceLinkService.verifySourceCompletion(userId, sessionId);
     setVerificationCode(code);
+    setSourceVerified(true);
     setStatus('HPKE channel verified. Secret and history transfer is the next stage.');
   });
 
@@ -144,6 +152,8 @@ export const DeviceLinkingPanel: React.FC<DeviceLinkingPanelProps> = ({ userId }
     const joined = await qrDeviceLinkService.joinSession(userId, deviceId, qrInput.trim());
     setSessionId(joined);
     setVerificationCode('');
+    setScannerCompleted(false);
+    setBundleReceived(false);
     setStatus('Pairing request sent. Approve it on the device displaying the QR code.');
   });
 
@@ -151,6 +161,7 @@ export const DeviceLinkingPanel: React.FC<DeviceLinkingPanelProps> = ({ userId }
     if (!sessionId) throw new Error('Scan a Dcalls pairing QR code first.');
     const code = await qrDeviceLinkService.completeJoin(userId, sessionId);
     setVerificationCode(code);
+    setScannerCompleted(true);
     setStatus('Secure channel established. Compare this code with the existing device.');
   });
 
@@ -184,6 +195,11 @@ export const DeviceLinkingPanel: React.FC<DeviceLinkingPanelProps> = ({ userId }
     setQrPayload('');
     setExpiresAt(null);
     setVerificationCode('');
+    setBundleSent(false);
+    setBundleReceived(false);
+    setSourceAccepted(false);
+    setScannerCompleted(false);
+    setSourceVerified(false);
     setStatus('Pairing cancelled.');
   });
 
@@ -229,18 +245,22 @@ export const DeviceLinkingPanel: React.FC<DeviceLinkingPanelProps> = ({ userId }
               <button onClick={() => run(async () => { await navigator.clipboard.writeText(qrPayload); })} className="w-full rounded-xl border border-white/10 py-3 text-xs font-semibold flex items-center justify-center gap-2">
                 <Copy size={14} /> Copy pairing payload
               </button>
-              <button disabled={busy} onClick={acceptJoin} className="w-full rounded-xl bg-indigo-600/20 border border-indigo-500/30 py-3 text-xs font-bold disabled:opacity-50">
-                Approve new device
-              </button>
+              {!sourceAccepted && (
+                <button disabled={busy} onClick={acceptJoin} className="w-full rounded-xl bg-indigo-600/20 border border-indigo-500/30 py-3 text-xs font-bold disabled:opacity-50">
+                  Approve new device
+                </button>
+              )}
               {verificationCode && (
                 <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-4 text-center space-y-2">
                   <p className="text-[10px] uppercase tracking-widest text-emerald-300">Compare this code</p>
                   <p className="text-4xl font-black tracking-[0.3em] tabular-nums">{verificationCode}</p>
                   <p className="text-xs text-gray-400">Only continue if the other device shows exactly the same code.</p>
-                  <button disabled={busy} onClick={verifySource} className="w-full rounded-xl bg-emerald-600 py-3 text-xs font-bold disabled:opacity-50">
-                    Confirm matching code
-                  </button>
-                  {status.includes('verified') && !bundleSent && (
+                  {!sourceVerified && (
+                    <button disabled={busy} onClick={verifySource} className="w-full rounded-xl bg-emerald-600 py-3 text-xs font-bold disabled:opacity-50">
+                      Confirm matching code
+                    </button>
+                  )}
+                  {sourceVerified && !bundleSent && (
                     <button disabled={busy} onClick={sendAccountKeys} className="w-full rounded-xl bg-indigo-600 py-3 text-xs font-bold disabled:opacity-50">
                       Transfer account signing keys
                     </button>
@@ -276,7 +296,7 @@ export const DeviceLinkingPanel: React.FC<DeviceLinkingPanelProps> = ({ userId }
           <button disabled={busy || !qrInput.trim()} onClick={joinQr} className="w-full rounded-xl bg-indigo-600 py-3 text-sm font-bold disabled:opacity-50">
             Join pairing session
           </button>
-          {sessionId && (
+          {sessionId && !scannerCompleted && (
             <button disabled={busy} onClick={completeJoin} className="w-full rounded-xl border border-white/10 py-3 text-xs font-bold disabled:opacity-50">
               Check for approval
             </button>
@@ -286,7 +306,7 @@ export const DeviceLinkingPanel: React.FC<DeviceLinkingPanelProps> = ({ userId }
               <p className="text-[10px] uppercase tracking-widest text-emerald-300">Compare this code</p>
               <p className="text-4xl font-black tracking-[0.3em] tabular-nums">{verificationCode}</p>
               <p className="text-xs text-gray-400">Verify that the existing device displays the same code.</p>
-              {!bundleReceived && (
+              {scannerCompleted && !bundleReceived && (
                 <button disabled={busy} onClick={receiveAccountKeys} className="w-full rounded-xl bg-indigo-600 py-3 text-xs font-bold disabled:opacity-50">
                   Receive account signing keys
                 </button>
