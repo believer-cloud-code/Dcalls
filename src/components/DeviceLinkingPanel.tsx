@@ -3,6 +3,7 @@ import { AlertCircle, Camera, CheckCircle2, Copy, Link2, Loader2, RefreshCw, Shi
 import { QRCodeSVG } from 'qrcode.react';
 import { matrixCryptoService } from '../services/matrixCryptoService';
 import { qrDeviceLinkService } from '../services/qrDeviceLinkService';
+import { deviceRegistryService } from '../services/deviceRegistryService';
 
 interface DeviceLinkingPanelProps {
   userId: string;
@@ -33,6 +34,7 @@ export const DeviceLinkingPanel: React.FC<DeviceLinkingPanelProps> = ({ userId }
   const [sourceAccepted, setSourceAccepted] = useState(false);
   const [scannerCompleted, setScannerCompleted] = useState(false);
   const [sourceVerified, setSourceVerified] = useState(false);
+  const [registeredDevices, setRegisteredDevices] = useState<Array<{ id: string; deviceKeys?: Record<string, unknown>; revokedAt?: unknown; updatedAt?: unknown }>>([]);
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
@@ -102,6 +104,24 @@ export const DeviceLinkingPanel: React.FC<DeviceLinkingPanelProps> = ({ userId }
       if (video) video.srcObject = null;
     };
   }, [cameraActive]);
+
+  const refreshRegisteredDevices = async () => {
+    const devices = await deviceRegistryService.listAllDevices(userId);
+    setRegisteredDevices(devices);
+  };
+
+  useEffect(() => {
+    let active = true;
+    deviceRegistryService.listAllDevices(userId)
+      .then((devices) => { if (active) setRegisteredDevices(devices); })
+      .catch((reason) => { if (active) setError(reason instanceof Error ? reason.message : String(reason)); });
+    return () => { active = false; };
+  }, [userId]);
+
+  const revokeDevice = (targetDeviceId: string) => run(async () => {
+    await deviceRegistryService.revokeDevice(userId, targetDeviceId);
+    await refreshRegisteredDevices();
+  });
 
   const run = async (action: () => Promise<void>) => {
     setBusy(true);
@@ -178,6 +198,7 @@ export const DeviceLinkingPanel: React.FC<DeviceLinkingPanelProps> = ({ userId }
     const bundle = await qrDeviceLinkService.receiveSecretsBundle(userId, sessionId);
     await matrixCryptoService.importSecretsBundleFromDeviceLink(userId, bundle);
     await qrDeviceLinkService.acknowledgeSecretsBundle(userId, sessionId);
+    await refreshRegisteredDevices();
     setBundleReceived(true);
     setStatus('Account signing keys imported. This device has signed its own device identity.');
   });
@@ -330,6 +351,38 @@ export const DeviceLinkingPanel: React.FC<DeviceLinkingPanelProps> = ({ userId }
           <p className="text-xs break-words">{error}</p>
         </div>
       )}
+
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h4 className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Registered devices</h4>
+          <button disabled={busy} onClick={() => run(refreshRegisteredDevices)} className="text-[10px] text-indigo-300">Refresh</button>
+        </div>
+        {registeredDevices.length === 0 ? (
+          <p className="text-xs text-gray-500">No registered devices found.</p>
+        ) : registeredDevices.map((device) => {
+          const unsigned = device.deviceKeys?.unsigned as Record<string, unknown> | undefined;
+          const label = typeof unsigned?.device_display_name === 'string'
+            ? unsigned.device_display_name
+            : device.id === deviceId ? 'This device' : 'Dcalls device';
+          const revoked = Boolean(device.revokedAt);
+          const current = device.id === deviceId;
+          return (
+            <div key={device.id} className="rounded-xl border border-white/10 bg-white/[0.03] p-3 flex items-center gap-3">
+              <Smartphone size={17} className={revoked ? 'text-gray-600' : 'text-indigo-300'} />
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-semibold">{label}{current ? ' · Current' : ''}</p>
+                <p className="text-[9px] text-gray-500 truncate">{device.id}</p>
+                {revoked && <p className="text-[9px] text-red-300">Revoked</p>}
+              </div>
+              {!current && !revoked && (
+                <button disabled={busy} onClick={() => revokeDevice(device.id)} className="text-[10px] font-semibold text-red-300 disabled:opacity-50">
+                  Revoke
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
 
       {sessionId && (
         <button disabled={busy} onClick={cancel} className="w-full rounded-xl border border-red-500/20 py-3 text-xs font-semibold text-red-300 disabled:opacity-50 flex items-center justify-center gap-2">
