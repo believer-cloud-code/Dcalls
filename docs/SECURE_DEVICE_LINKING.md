@@ -45,7 +45,7 @@ A successful HPKE channel proves that both endpoints share a secret; the users m
 - The new installation creates its own independent Matrix device identity and prekeys.
 - The existing device exports the SDK secret bundle only after user approval and successful check-code comparison.
 - The receiving device imports the bundle with `importSecretsBundle`.
-- Room history keys are exported/imported using Matrix SDK room-key APIs and sent only over the HPKE channel.
+- This QR release transfers account cross-signing secrets only. It does not copy older chat history or room keys.
 - Never copy the old device's private Olm identity or IndexedDB crypto store wholesale.
 - After import, register the new device and verify that its public device keys are signed by the account's self-signing key.
 - Device listing and revocation are implemented in Settings; revoked devices are excluded from key queries, prekey claims and inbox delivery.
