@@ -1,7 +1,7 @@
 
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { User, Bell, Shield, HelpCircle, LogOut, ChevronRight, Moon, Languages, X, Camera, Check, Lock, Eye, Volume2, Palette, Globe, ArrowLeft, Smile, Zap, MessageSquare } from 'lucide-react';
+import { User, Bell, Shield, HelpCircle, LogOut, ChevronRight, Moon, Languages, X, Camera, Check, Lock, Eye, Volume2, Palette, Globe, ArrowLeft, Smile, Zap, MessageSquare, Link2 } from 'lucide-react';
 import { DcallsIcon } from './DcallsIcon';
 import { authService, UnifiedUser } from '../services/authService';
 import { db } from '../firebase';
@@ -10,6 +10,7 @@ import { openHelp, getPrivacyUrl } from '../config/urls';
 import { doc, updateDoc } from 'firebase/firestore';
 import { LANGUAGE_NAMES } from '../config/languages';
 import { requestNotificationPermission } from '../services/notificationService';
+import { DeviceLinkingPanel } from './DeviceLinkingPanel';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -122,6 +123,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ user }) => {
     { icon: <Bell size={20} />, label: "Notifications", desc: "Message, group & call tones" },
     { icon: <Moon size={20} />, label: "Appearance", desc: "Dark mode, wallpapers" },
     { icon: <Shield size={20} />, label: "Privacy", desc: "Last seen, profile photo" },
+    { icon: <Link2 size={20} />, label: "Linked Devices", desc: "Pair a new device securely" },
     { icon: <DcallsIcon size={20} />, label: "Damai AI", desc: "Persona, interaction style, commands" },
     { icon: <HelpCircle size={20} />, label: "Help", desc: "Help center, contact us, privacy policy" },
   ];
@@ -631,6 +633,14 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ user }) => {
                     </ul>
                   </div>
                 </div>
+              )}
+
+              {activeSection === "Linked Devices" && (
+                user ? (
+                  <DeviceLinkingPanel userId={user.uid} />
+                ) : (
+                  <p className="text-sm text-gray-500">Sign in to manage linked devices.</p>
+                )
               )}
 
               {activeSection === "Help" && (
