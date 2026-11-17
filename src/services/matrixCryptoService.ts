@@ -172,6 +172,76 @@ class MatrixCryptoService {
   }
 
 
+
+  /**
+   * Creates or reuses this account's Matrix cross-signing identity and publishes
+   * its public keys/signatures through the Dcalls Firestore transport.
+   *
+   * This must be invoked deliberately by an authenticated user. It never resets
+   * an existing identity; the SDK is always called with reset=false.
+   */
+  async bootstrapCrossSigning(firebaseUid: string): Promise<boolean> {
+    return this.withAccountLock(firebaseUid, async () => {
+      const machine = await this.getMachine(firebaseUid);
+      const bootstrap = await machine.bootstrapCrossSigning(false) as {
+        uploadKeysRequest?: unknown;
+        uploadSigningKeysRequest: { body: string };
+        uploadSignaturesRequest: { body: string; id?: string };
+      };
+
+      if (bootstrap.uploadKeysRequest instanceof KeysUploadRequest) {
+        const request = bootstrap.uploadKeysRequest;
+        const body = JSON.parse(request.body) as {
+          device_keys?: Record<string, unknown>;
+          one_time_keys?: Record<string, Record<string, unknown>>;
+          fallback_keys?: Record<string, Record<string, unknown>>;
+        };
+        if (!body.device_keys) throw new Error('Cross-signing bootstrap generated invalid device keys.');
+        const deviceId = await this.getDeviceId(firebaseUid);
+        const expectedUserId = await stableMatrixUserId(firebaseUid);
+        if (body.device_keys.device_id !== deviceId || body.device_keys.user_id !== expectedUserId) {
+          throw new Error('Cross-signing bootstrap device identity does not match this installation.');
+        }
+        await deviceRegistryService.publishDeviceKeys(firebaseUid, deviceId, {
+          deviceKeys: body.device_keys,
+          oneTimeKeys: body.one_time_keys ?? {},
+          fallbackKeys: body.fallback_keys,
+        });
+        await machine.markRequestAsSent(
+          request.id,
+          request.type,
+          JSON.stringify({
+            one_time_key_counts: await deviceRegistryService.getOneTimeKeyCounts(firebaseUid, deviceId),
+            unused_fallback_key_types: await deviceRegistryService.getUnusedFallbackKeyTypes(firebaseUid, deviceId),
+          }),
+        );
+      }
+
+      const signingKeys = JSON.parse(bootstrap.uploadSigningKeysRequest.body) as {
+        master_key?: Record<string, unknown>;
+        self_signing_key?: Record<string, unknown>;
+        user_signing_key?: Record<string, unknown>;
+      };
+      if (!signingKeys.master_key || !signingKeys.self_signing_key || !signingKeys.user_signing_key) {
+        throw new Error('Matrix did not produce the complete cross-signing public key set.');
+      }
+
+      const signatures = JSON.parse(bootstrap.uploadSignaturesRequest.body) as Record<string, unknown>;
+      await deviceRegistryService.publishCrossSigningKeys(firebaseUid, {
+        masterKey: signingKeys.master_key,
+        selfSigningKey: signingKeys.self_signing_key,
+        userSigningKey: signingKeys.user_signing_key,
+        signatures,
+      });
+
+      const status = await machine.crossSigningStatus();
+      if (!status || !status.hasMaster || !status.hasSelfSigning || !status.hasUserSigning) {
+        throw new Error('Cross-signing keys were generated but are not all available in the local crypto store.');
+      }
+      return true;
+    });
+  }
+
   /**
    * Resolves Firebase account IDs to stable Matrix protocol IDs. The mapping
    * is deterministic and does not expose Firebase UIDs in the crypto protocol.
@@ -213,6 +283,14 @@ class MatrixCryptoService {
         userDevices[device.id] = keys;
       }
       response.device_keys[matrixUserId] = userDevices;
+      const crossSigning = await deviceRegistryService.getPublicCrossSigningKeys(firebaseUid);
+      if (crossSigning) {
+        response.master_keys[matrixUserId] = crossSigning.masterKey;
+        (response as typeof response & { self_signing_keys: Record<string, unknown>; user_signing_keys: Record<string, unknown> }).self_signing_keys ??= {};
+        (response as typeof response & { self_signing_keys: Record<string, unknown>; user_signing_keys: Record<string, unknown> }).user_signing_keys ??= {};
+        (response as typeof response & { self_signing_keys: Record<string, unknown>; user_signing_keys: Record<string, unknown> }).self_signing_keys[matrixUserId] = crossSigning.selfSigningKey;
+        (response as typeof response & { self_signing_keys: Record<string, unknown>; user_signing_keys: Record<string, unknown> }).user_signing_keys[matrixUserId] = crossSigning.userSigningKey;
+      }
     }
 
     await machine.markRequestAsSent(request.id, request.type, JSON.stringify(response));
