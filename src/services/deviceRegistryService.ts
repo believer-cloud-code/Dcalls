@@ -26,7 +26,8 @@ export interface PublicCrossSigningKeys {
   userSigningKey: Record<string, unknown>;
   signatures: Record<string, unknown>;
 }
-\nexport interface ClaimedOneTimeKey {
+
+export interface ClaimedOneTimeKey {
   id: string;
   key: Record<string, unknown>;
   fallback?: boolean;
