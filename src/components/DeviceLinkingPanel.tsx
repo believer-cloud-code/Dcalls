@@ -33,6 +33,7 @@ export const DeviceLinkingPanel: React.FC<DeviceLinkingPanelProps> = ({ userId }
   const [bundleReceived, setBundleReceived] = useState(false);
   const [receiptVerified, setReceiptVerified] = useState(false);
   const [sourceAccepted, setSourceAccepted] = useState(false);
+  const [joinInfo, setJoinInfo] = useState<{ deviceId: string; deviceName: string } | null>(null);
   const [scannerCompleted, setScannerCompleted] = useState(false);
   const [sourceVerified, setSourceVerified] = useState(false);
   const [scannerCodeConfirmed, setScannerCodeConfirmed] = useState(false);
@@ -150,8 +151,16 @@ export const DeviceLinkingPanel: React.FC<DeviceLinkingPanelProps> = ({ userId }
     setBundleSent(false);
     setReceiptVerified(false);
     setSourceAccepted(false);
+    setJoinInfo(null);
     setSourceVerified(false);
     setStatus('QR ready. Scan it using your new Dcalls device.');
+  });
+
+  const inspectJoin = () => run(async () => {
+    if (!sessionId) throw new Error('Create a QR session first.');
+    const info = await qrDeviceLinkService.inspectJoin(userId, sessionId);
+    setJoinInfo(info);
+    setStatus('Review the requesting device before approving the pairing.');
   });
 
   const acceptJoin = () => run(async () => {
@@ -227,6 +236,7 @@ export const DeviceLinkingPanel: React.FC<DeviceLinkingPanelProps> = ({ userId }
     setBundleReceived(false);
     setReceiptVerified(false);
     setSourceAccepted(false);
+    setJoinInfo(null);
     setScannerCompleted(false);
     setScannerCodeConfirmed(false);
     setSourceVerified(false);
@@ -275,10 +285,20 @@ export const DeviceLinkingPanel: React.FC<DeviceLinkingPanelProps> = ({ userId }
               <button onClick={() => run(async () => { await navigator.clipboard.writeText(qrPayload); })} className="w-full rounded-xl border border-white/10 py-3 text-xs font-semibold flex items-center justify-center gap-2">
                 <Copy size={14} /> Copy pairing payload
               </button>
-              {!sourceAccepted && (
-                <button disabled={busy} onClick={acceptJoin} className="w-full rounded-xl bg-indigo-600/20 border border-indigo-500/30 py-3 text-xs font-bold disabled:opacity-50">
-                  Approve new device
+              {!joinInfo && !sourceAccepted && (
+                <button disabled={busy} onClick={inspectJoin} className="w-full rounded-xl border border-white/10 py-3 text-xs font-bold disabled:opacity-50">
+                  Check for new device
                 </button>
+              )}
+              {joinInfo && !sourceAccepted && (
+                <div className="rounded-xl border border-indigo-500/30 bg-indigo-500/5 p-3 space-y-2">
+                  <p className="text-[10px] uppercase tracking-widest text-indigo-300">Device requesting access</p>
+                  <p className="text-xs font-semibold break-words">{joinInfo.deviceName}</p>
+                  <p className="text-[9px] text-gray-500 break-all">Device ID: {joinInfo.deviceId}</p>
+                  <button disabled={busy} onClick={acceptJoin} className="w-full rounded-xl bg-indigo-600 py-3 text-xs font-bold disabled:opacity-50">
+                    Approve this device
+                  </button>
+                </div>
               )}
               {verificationCode && (
                 <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-4 text-center space-y-2">
