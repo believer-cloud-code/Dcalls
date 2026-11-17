@@ -593,6 +593,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const MessageBubble = ({ msg }: { msg: Message }) => {
     const [decryptedText, setDecryptedText] = useState<string>(msg.text);
     const [decryptionStatus, setDecryptionStatus] = useState<'idle' | 'decrypting' | 'success' | 'failed'>('idle');
+    const matrixDecryptInProgressRef = useRef(false);
 
     const decrypt = async () => {
       // Check shared cache first to avoid re-decrypting the same message repeatedly
@@ -609,6 +610,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         return;
       }
       if ((msg as any).isEncrypted && (msg as any).encryptionMethod === 'matrix-megolm') {
+        if (matrixDecryptInProgressRef.current) return;
+        matrixDecryptInProgressRef.current = true;
         setDecryptionStatus('decrypting');
         try {
           if (!auth.currentUser) throw new Error('Sign in to decrypt this message.');
@@ -630,6 +633,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
           setDecryptionStatus('failed');
           setDecryptedText('Unable to decrypt this encrypted message yet. The device key or room key may still be syncing.');
           try { markDecryptFailed(msg.id); } catch {}
+        } finally {
+          matrixDecryptInProgressRef.current = false;
         }
       } else if ((msg as any).isEncrypted && msg.senderId !== auth.currentUser?.uid) {
         setDecryptionStatus('decrypting');
