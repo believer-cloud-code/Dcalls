@@ -111,12 +111,13 @@ export const DeviceLinkingPanel: React.FC<DeviceLinkingPanelProps> = ({ userId }
   };
 
   useEffect(() => {
+    if (!deviceId) return;
     let active = true;
     deviceRegistryService.listAllDevices(userId)
       .then((devices) => { if (active) setRegisteredDevices(devices); })
       .catch((reason) => { if (active) setError(reason instanceof Error ? reason.message : String(reason)); });
     return () => { active = false; };
-  }, [userId]);
+  }, [userId, deviceId]);
 
   const revokeDevice = (targetDeviceId: string) => run(async () => {
     await deviceRegistryService.revokeDevice(userId, targetDeviceId);
