@@ -3,6 +3,7 @@ import {
   deleteDoc,
   doc,
   getDocs,
+  getDoc,
   limit,
   query,
   runTransaction,
@@ -21,6 +22,7 @@ export interface PublishedDeviceKeys {
 export interface ClaimedOneTimeKey {
   id: string;
   key: Record<string, unknown>;
+  fallback?: boolean;
 }
 
 /**
@@ -113,7 +115,79 @@ export const deviceRegistryService = {
       if (claimed) return claimed;
     }
 
+    // Matrix fallback keys are reusable until replaced, and are returned only
+    // after the one-time-key pool for this algorithm is exhausted.
+    const deviceSnapshot = await getDoc(doc(db, 'users', ownerUid, 'devices', deviceId));
+    const fallbackKeys = deviceSnapshot.data()?.fallbackKeys as Record<string, Record<string, unknown>> | undefined;
+    if (fallbackKeys) {
+      const fallbackEntry = Object.entries(fallbackKeys).find(([keyId, key]) =>
+        keyId.startsWith(`${algorithm}:`) &&
+        key &&
+        typeof key.key === 'string' &&
+        key.fallback === true &&
+        !!key.signatures &&
+        typeof key.signatures === 'object'
+      );
+      if (fallbackEntry) {
+        const [keyId, key] = fallbackEntry;
+        await this.markFallbackKeyUsed(ownerUid, deviceId, keyId, chatId);
+        return { id: keyId, key, fallback: true };
+      }
+    }
+
     return null;
+  },
+
+  async markFallbackKeyUsed(
+    ownerUid: string,
+    deviceId: string,
+    keyId: string,
+    chatId: string,
+  ): Promise<void> {
+    const claimantUid = auth.currentUser?.uid;
+    if (!claimantUid) throw new Error('Sign in before claiming a fallback key.');
+    const usageRef = doc(
+      db,
+      'users',
+      ownerUid,
+      'devices',
+      deviceId,
+      'fallbackKeyUsage',
+      encodeURIComponent(keyId),
+    );
+    await runTransaction(db, async (transaction) => {
+      const existing = await transaction.get(usageRef);
+      if (!existing.exists()) {
+        transaction.set(usageRef, {
+          keyId,
+          algorithm: keyId.split(':', 1)[0],
+          chatId,
+          claimedBy: claimantUid,
+          usedAt: serverTimestamp(),
+        });
+      }
+    });
+  },
+
+  async getUnusedFallbackKeyTypes(ownerUid: string, deviceId: string): Promise<string[]> {
+    const deviceSnapshot = await getDoc(doc(db, 'users', ownerUid, 'devices', deviceId));
+    const fallbackKeys = deviceSnapshot.data()?.fallbackKeys as Record<string, Record<string, unknown>> | undefined;
+    if (!fallbackKeys) return [];
+
+    const usageSnapshot = await getDocs(collection(
+      db,
+      'users',
+      ownerUid,
+      'devices',
+      deviceId,
+      'fallbackKeyUsage',
+    ));
+    const usedKeyIds = new Set(usageSnapshot.docs.map((item) => String(item.data().keyId ?? '')));
+    return [...new Set(
+      Object.entries(fallbackKeys)
+        .filter(([keyId, key]) => key?.fallback === true && !usedKeyIds.has(keyId))
+        .map(([keyId]) => keyId.split(':', 1)[0]),
+    )];
   },
 
   async sendEncryptedDeviceEvent(
