@@ -53,6 +53,7 @@ async function stableMatrixUserId(firebaseUid: string): Promise<string> {
  * supplies the protocol state machine and persistent cryptographic store.
  */
 class MatrixCryptoService {
+  private inboxProcessing = new Map<string, Promise<number>>();
   async getMachine(firebaseUid: string): Promise<OlmMachine> {
     if (!firebaseUid) throw new Error('A signed-in Dcalls user is required.');
 
@@ -389,6 +390,7 @@ class MatrixCryptoService {
     messageId: string,
     plaintext: string,
   ): Promise<string> {
+    await this.processPendingDeviceEvents(firebaseUid, chatId);
     const machine = await this.getMachine(firebaseUid);
     const roomId = await this.prepareChatRoomKey(firebaseUid, peerFirebaseUids, chatId);
     const content = JSON.stringify({ msgtype: 'm.text', body: plaintext });
@@ -408,6 +410,7 @@ class MatrixCryptoService {
     messageId: string,
     encryptedPayload: string,
   ): Promise<string> {
+    await this.processPendingDeviceEvents(firebaseUid, chatId);
     const machine = await this.getMachine(firebaseUid);
     const payload = JSON.parse(encryptedPayload) as {
       roomId?: string;
@@ -443,11 +446,29 @@ class MatrixCryptoService {
 
 
   /**
+   * Serializes inbox processing per account/chat so several message bubbles
+   * cannot import and acknowledge the same to-device batch concurrently.
+   */
+  async processPendingDeviceEvents(firebaseUid: string, chatId: string): Promise<number> {
+    const key = `${firebaseUid}:${chatId}`;
+    const active = this.inboxProcessing.get(key);
+    if (active) return active;
+
+    const task = this.processPendingDeviceEventsInternal(firebaseUid, chatId);
+    this.inboxProcessing.set(key, task);
+    try {
+      return await task;
+    } finally {
+      if (this.inboxProcessing.get(key) === task) this.inboxProcessing.delete(key);
+    }
+  }
+
+  /**
    * Imports encrypted to-device events delivered to this installation.
    * Inbox records are acknowledged only after the Matrix state machine accepts
    * the complete batch. The caller should run this when a chat becomes active.
    */
-  async processPendingDeviceEvents(firebaseUid: string, chatId: string): Promise<number> {
+  private async processPendingDeviceEventsInternal(firebaseUid: string, chatId: string): Promise<number> {
     if (!firebaseUid || !chatId) throw new Error('A signed-in user and chat are required.');
 
     const machine = await this.getMachine(firebaseUid);
