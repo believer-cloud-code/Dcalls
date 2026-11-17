@@ -749,6 +749,17 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
       return () => window.removeEventListener('dcalls:plain-set', handler as EventListener);
     }, [msg.id]);
 
+    useEffect(() => {
+      const handler = (ev: Event) => {
+        const detail = (ev as CustomEvent<{ chatId?: string }>).detail;
+        if (detail?.chatId !== chatId || (msg as any).encryptionMethod !== 'matrix-megolm') return;
+        failedDecryptMap.delete(msg.id);
+        decrypt();
+      };
+      window.addEventListener('dcalls:matrix-keys-updated', handler as EventListener);
+      return () => window.removeEventListener('dcalls:matrix-keys-updated', handler as EventListener);
+    }, [msg.id, chatId]);
+
     const isMe = msg.senderId === auth.currentUser?.uid;
     const isAi = msg.senderId === 'ai' || msg.isAi;
     const isEncrypted = (msg as any).isEncrypted;
