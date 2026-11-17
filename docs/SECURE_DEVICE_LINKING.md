@@ -48,7 +48,9 @@ A successful HPKE channel proves that both endpoints share a secret; the users m
 - Room history keys are exported/imported using Matrix SDK room-key APIs and sent only over the HPKE channel.
 - Never copy the old device's private Olm identity or IndexedDB crypto store wholesale.
 - After import, register the new device and verify that its public device keys are signed by the account's self-signing key.
-- Add device listing, revocation, cancellation, expiry and replay rejection.
+- Device listing and revocation are implemented in Settings; revoked devices are excluded from key queries, prekey claims and inbox delivery.
+- Cancellation, expiry and replay rejection are implemented for pairing sessions.
+- Room-history key transfer is still a separate follow-up; the current QR flow transfers cross-signing secrets only.
 
 ## Security acceptance criteria
 
@@ -61,3 +63,4 @@ A successful HPKE channel proves that both endpoints share a secret; the users m
 7. Revoking a device prevents future key sharing to it; old messages and backups are not silently deleted.
 8. Firestore rules are emulator-tested before deployment.
 9. CI passes type-check and production build; real two-device tests are still required.
+10. Revoked devices are not returned by active-device key queries and cannot claim prekeys or receive new device-inbox events.
