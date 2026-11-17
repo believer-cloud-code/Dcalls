@@ -677,9 +677,12 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
           } else {
             setDecryptedText(decrypted);
           }
-          // Keep Matrix plaintext in memory only; never persist it as a local
-          // plaintext recovery mechanism.
-          decryptedCache.set(msg.id, decrypted);
+          // Keep ordinary message plaintext in memory only. Attachment
+          // metadata stays in component state so it can be re-parsed after a
+          // message bubble remounts.
+          if (!((msg.type === 'image' || msg.type === 'file') && (msg as any).attachmentEncrypted)) {
+            decryptedCache.set(msg.id, decrypted);
+          }
           failedDecryptMap.delete(msg.id);
           setDecryptionStatus('success');
         } catch (e) {
