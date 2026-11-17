@@ -19,7 +19,14 @@ export interface PublishedDeviceKeys {
   fallbackKeys?: Record<string, Record<string, unknown>>;
 }
 
-export interface ClaimedOneTimeKey {
+
+export interface PublicCrossSigningKeys {
+  masterKey: Record<string, unknown>;
+  selfSigningKey: Record<string, unknown>;
+  userSigningKey: Record<string, unknown>;
+  signatures: Record<string, unknown>;
+}
+\nexport interface ClaimedOneTimeKey {
   id: string;
   key: Record<string, unknown>;
   fallback?: boolean;
@@ -35,6 +42,51 @@ export interface ClaimedOneTimeKey {
  * alone completes Matrix key exchange.
  */
 export const deviceRegistryService = {
+
+  async publishCrossSigningKeys(ownerUid: string, keys: PublicCrossSigningKeys): Promise<void> {
+    if (!ownerUid || !keys.masterKey || !keys.selfSigningKey || !keys.userSigningKey) {
+      throw new Error('A complete cross-signing public key set is required.');
+    }
+    const ref = doc(db, 'users', ownerUid, 'crossSigning', 'current');
+    await runTransaction(db, async (transaction) => {
+      const existing = await transaction.get(ref);
+      if (existing.exists()) {
+        const data = existing.data();
+        const sameIdentity =
+          JSON.stringify(data.masterKey) === JSON.stringify(keys.masterKey) &&
+          JSON.stringify(data.selfSigningKey) === JSON.stringify(keys.selfSigningKey) &&
+          JSON.stringify(data.userSigningKey) === JSON.stringify(keys.userSigningKey);
+        if (!sameIdentity) {
+          throw new Error('A different cross-signing identity is already registered. Identity reset is intentionally blocked.');
+        }
+        transaction.update(ref, { signatures: keys.signatures, updatedAt: serverTimestamp() });
+        return;
+      }
+      transaction.set(ref, {
+        masterKey: keys.masterKey,
+        selfSigningKey: keys.selfSigningKey,
+        userSigningKey: keys.userSigningKey,
+        signatures: keys.signatures,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        protocol: 'matrix-cross-signing-v1',
+      });
+    });
+  },
+
+  async getPublicCrossSigningKeys(ownerUid: string): Promise<PublicCrossSigningKeys | null> {
+    const snapshot = await getDoc(doc(db, 'users', ownerUid, 'crossSigning', 'current'));
+    if (!snapshot.exists()) return null;
+    const data = snapshot.data();
+    if (!data.masterKey || !data.selfSigningKey || !data.userSigningKey || !data.signatures) return null;
+    return {
+      masterKey: data.masterKey as Record<string, unknown>,
+      selfSigningKey: data.selfSigningKey as Record<string, unknown>,
+      userSigningKey: data.userSigningKey as Record<string, unknown>,
+      signatures: data.signatures as Record<string, unknown>,
+    };
+  },
+
   async publishDeviceKeys(
     ownerUid: string,
     deviceId: string,
