@@ -1,8 +1,10 @@
 import {
+  Attachment,
   DeviceId,
   DeviceLists,
   DecryptionSettings,
   EncryptionSettings,
+  EncryptedAttachment,
   initAsync,
   KeysClaimRequest,
   KeysQueryRequest,
@@ -386,6 +388,28 @@ class MatrixCryptoService {
     chatId: string,
   ): Promise<void> {
     await this.prepareChatRoomKey(firebaseUid, peerFirebaseUids, chatId);
+  }
+
+
+  async encryptAttachment(file: File): Promise<{
+    encryptedData: Uint8Array;
+    mediaEncryptionInfo: string;
+  }> {
+    await initAsync();
+    const encrypted = Attachment.encrypt(new Uint8Array(await file.arrayBuffer()));
+    const mediaEncryptionInfo = encrypted.mediaEncryptionInfo;
+    if (!mediaEncryptionInfo) {
+      throw new Error('The Matrix SDK did not return attachment encryption metadata.');
+    }
+    return {
+      encryptedData: encrypted.encryptedData,
+      mediaEncryptionInfo,
+    };
+  }
+
+  decryptAttachment(encryptedData: Uint8Array, mediaEncryptionInfo: string): Uint8Array {
+    const encrypted = new EncryptedAttachment(encryptedData, mediaEncryptionInfo);
+    return Attachment.decrypt(encrypted);
   }
 
   async encryptChatMessage(
