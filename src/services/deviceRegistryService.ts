@@ -52,7 +52,7 @@ export const deviceRegistryService = {
       updatedAt: serverTimestamp(),
       protocol: 'matrix-olm-megolm',
       protocolVersion: 1,
-      ...(keys.fallbackKeys ? { fallbackKeys: keys.fallbackKeys } : {}),
+      ...(keys.fallbackKeys && Object.keys(keys.fallbackKeys).length > 0 ? { fallbackKeys: keys.fallbackKeys } : {}),
     }, { merge: true });
 
     if (oneTimeKeys.length) {
