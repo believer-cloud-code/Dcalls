@@ -56,6 +56,27 @@ service cloud.firestore {
       allow create: if isOwner(userId) && isValidUser(request.resource.data);
       allow update: if isOwner(userId) && isValidUser(request.resource.data);
 
+      match /crossSigning/{identityId} {
+        // Cross-signing public keys and signatures are public verification
+        // material; private signing seeds must never be stored here.
+        allow read: if isAuthenticated();
+        allow create: if isOwner(userId) &&
+          identityId == 'current' &&
+          request.resource.data.masterKey is map &&
+          request.resource.data.selfSigningKey is map &&
+          request.resource.data.userSigningKey is map &&
+          request.resource.data.signatures is map &&
+          request.resource.data.protocol == 'matrix-cross-signing-v1';
+        allow update: if isOwner(userId) &&
+          identityId == 'current' &&
+          request.resource.data.masterKey == resource.data.masterKey &&
+          request.resource.data.selfSigningKey == resource.data.selfSigningKey &&
+          request.resource.data.userSigningKey == resource.data.userSigningKey &&
+          request.resource.data.protocol == resource.data.protocol &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['signatures', 'updatedAt']);
+        allow delete: if false;
+      }
+
       match /messages/{messageId} {
         allow read: if isOwner(userId);
         allow create, update: if isOwner(userId) && isValidMessage(request.resource.data);
