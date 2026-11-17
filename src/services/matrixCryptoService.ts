@@ -19,6 +19,21 @@ import {
 import { getMatrixStorePassphrase } from './cryptoStoreVault';
 import { deviceRegistryService } from './deviceRegistryService';
 
+function canonicalJson(value: unknown): string {
+  const normalize = (input: unknown): unknown => {
+    if (Array.isArray(input)) return input.map(normalize);
+    if (input && typeof input === 'object') {
+      return Object.fromEntries(
+        Object.entries(input as Record<string, unknown>)
+          .sort(([left], [right]) => left.localeCompare(right))
+          .map(([key, item]) => [key, normalize(item)]),
+      );
+    }
+    return input;
+  };
+  return JSON.stringify(normalize(value));
+}
+
 const DEVICE_ID_PREFIX = 'dcalls_matrix_device_v1_';
 const MATRIX_DOMAIN = 'dcalls.local';
 
@@ -199,7 +214,7 @@ class MatrixCryptoService {
         }
         try {
           const localMasterKey = JSON.parse(identity.masterKey) as Record<string, unknown>;
-          if (JSON.stringify(localMasterKey) !== JSON.stringify(registeredIdentity.masterKey)) {
+          if (canonicalJson(localMasterKey) !== canonicalJson(registeredIdentity.masterKey)) {
             throw new Error('This installation has a different cross-signing identity. Refusing to replace the account identity.');
           }
         } finally {
