@@ -214,11 +214,21 @@ service cloud.firestore {
               request.resource.data.senderId == request.auth.uid &&
               request.resource.data.isEncrypted == true &&
               request.resource.data.encryptionMethod == 'matrix-megolm' &&
-              request.resource.data.cryptoVersion == 2
+              request.resource.data.cryptoVersion == 2 &&
+              request.resource.data.text is string &&
+              (
+                request.resource.data.type == 'text' ||
+                (
+                  (request.resource.data.type == 'image' || request.resource.data.type == 'file') &&
+                  request.resource.data.attachmentEncrypted == true &&
+                  request.resource.data.fileUrl is string
+                )
+              )
             ) ||
             (
               request.resource.data.senderId == 'ai' &&
-              request.resource.data.isAi == true
+              request.resource.data.isAi == true &&
+              request.resource.data.type == 'text'
             )
           );
         // Message contents and encrypted attachment references are immutable.
