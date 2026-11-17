@@ -75,6 +75,28 @@ export const deviceRegistryService = {
     });
   },
 
+
+  async publishCrossSigningSignatures(ownerUid: string, newSignatures: Record<string, unknown>): Promise<void> {
+    const ref = doc(db, 'users', ownerUid, 'crossSigning', 'current');
+    const merge = (left: unknown, right: unknown): unknown => {
+      if (!left || typeof left !== 'object' || Array.isArray(left) ||
+          !right || typeof right !== 'object' || Array.isArray(right)) return right;
+      const result: Record<string, unknown> = { ...(left as Record<string, unknown>) };
+      for (const [key, value] of Object.entries(right as Record<string, unknown>)) {
+        result[key] = key in result ? merge(result[key], value) : value;
+      }
+      return result;
+    };
+    await runTransaction(db, async (transaction) => {
+      const snapshot = await transaction.get(ref);
+      if (!snapshot.exists()) throw new Error('The account cross-signing identity has not been published.');
+      transaction.update(ref, {
+        signatures: merge(snapshot.data().signatures, newSignatures),
+        updatedAt: serverTimestamp(),
+      });
+    });
+  },
+
   async getPublicCrossSigningKeys(ownerUid: string): Promise<PublicCrossSigningKeys | null> {
     const snapshot = await getDoc(doc(db, 'users', ownerUid, 'crossSigning', 'current'));
     if (!snapshot.exists()) return null;
