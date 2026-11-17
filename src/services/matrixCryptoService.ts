@@ -123,7 +123,7 @@ class MatrixCryptoService {
       await deviceRegistryService.publishDeviceKeys(firebaseUid, deviceId, {
         deviceKeys: body.device_keys,
         oneTimeKeys: body.one_time_keys ?? {},
-        fallbackKeys: body.fallback_keys ?? {},
+        fallbackKeys: body.fallback_keys,
       });
 
       const oneTimeKeyCounts: Record<string, number> = {};
@@ -352,7 +352,7 @@ class MatrixCryptoService {
         await deviceRegistryService.publishDeviceKeys(firebaseUid, senderDeviceId, {
           deviceKeys: body.device_keys,
           oneTimeKeys: body.one_time_keys ?? {},
-          fallbackKeys: body.fallback_keys ?? {},
+          fallbackKeys: body.fallback_keys,
         });
         const oneTimeKeyCounts: Record<string, number> = {};
         for (const keyId of Object.keys(body.one_time_keys ?? {})) {
