@@ -112,7 +112,8 @@ service cloud.firestore {
         // signed keys is allowed, but a device cannot silently replace them.
         allow create: if isOwner(userId) &&
           request.resource.data.deviceId == deviceId &&
-          request.resource.data.deviceKeys is map;
+          request.resource.data.deviceKeys is map &&
+          request.resource.data.deviceKeys.device_id == deviceId;
         allow update: if isOwner(userId) &&
           request.resource.data.deviceId == resource.data.deviceId &&
           request.resource.data.deviceKeys == resource.data.deviceKeys;
