@@ -14,6 +14,7 @@ import { auth, db } from '../firebase';
 export interface PublishedDeviceKeys {
   deviceKeys: Record<string, unknown>;
   oneTimeKeys?: Record<string, Record<string, unknown>>;
+  fallbackKeys?: Record<string, Record<string, unknown>>;
 }
 
 export interface ClaimedOneTimeKey {
@@ -50,6 +51,7 @@ export const deviceRegistryService = {
       updatedAt: serverTimestamp(),
       protocol: 'matrix-olm-megolm',
       protocolVersion: 1,
+      ...(keys.fallbackKeys ? { fallbackKeys: keys.fallbackKeys } : {}),
     }, { merge: true });
 
     if (oneTimeKeys.length) {
