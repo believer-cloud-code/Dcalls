@@ -54,13 +54,13 @@ async function readValue<T>(key: string): Promise<T | undefined> {
   });
 }
 
-async function writeValue(key: string, value: unknown): Promise<void> {
+async function addValue(key: string, value: unknown): Promise<void> {
   const db = await openVault();
   return new Promise((resolve, reject) => {
     const transaction = db.transaction(VAULT_STORE, 'readwrite');
-    transaction.objectStore(VAULT_STORE).put(value, key);
+    transaction.objectStore(VAULT_STORE).add(value, key);
     transaction.oncomplete = () => resolve();
-    transaction.onerror = () => reject(transaction.error ?? new Error('Could not update the Dcalls encryption vault.'));
+    transaction.onerror = () => reject(transaction.error ?? new Error('Could not create a Dcalls encryption vault entry.'));
     transaction.onabort = () => reject(transaction.error ?? new Error('The Dcalls encryption vault update was aborted.'));
   });
 }
@@ -80,13 +80,21 @@ async function getWrappingKey(): Promise<CryptoKey> {
     throw new Error('The local encryption vault is incomplete. Dcalls will not replace its missing wrapping key.');
   }
 
-  const key = await crypto.subtle.generateKey(
+  const candidate = await crypto.subtle.generateKey(
     { name: 'AES-GCM', length: 256 },
     false,
     ['encrypt', 'decrypt']
   );
-  await writeValue(WRAPPING_KEY_ID, key);
-  return key;
+
+  try {
+    await addValue(WRAPPING_KEY_ID, candidate);
+    return candidate;
+  } catch {
+    // Another tab may have initialized the vault first. Reuse its key.
+    const winner = await readValue<CryptoKey>(WRAPPING_KEY_ID);
+    if (winner) return winner;
+    throw new Error('Could not safely initialize the Dcalls encryption vault.');
+  }
 }
 
 export function getMatrixStorePassphrase(): Promise<string> {
@@ -121,8 +129,25 @@ export function getMatrixStorePassphrase(): Promise<string> {
       new TextEncoder().encode(passphrase)
     );
 
-    await writeValue(PASSPHRASE_ID, { iv, ciphertext } satisfies EncryptedSecret);
-    return passphrase;
+    const candidate: EncryptedSecret = { iv, ciphertext };
+    try {
+      await addValue(PASSPHRASE_ID, candidate);
+      return passphrase;
+    } catch {
+      // Another tab may have stored the passphrase first. Never overwrite it.
+      const winner = await readValue<EncryptedSecret>(PASSPHRASE_ID);
+      if (!winner) throw new Error('Could not safely initialize the crypto-store passphrase.');
+      try {
+        const plaintext = await crypto.subtle.decrypt(
+          { name: 'AES-GCM', iv: winner.iv },
+          wrappingKey,
+          winner.ciphertext
+        );
+        return new TextDecoder().decode(plaintext);
+      } catch (error) {
+        throw new Error('The local encryption vault could not unlock its existing crypto store.', { cause: error });
+      }
+    }
   })();
 
   return passphrasePromise;
