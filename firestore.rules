@@ -108,7 +108,15 @@ service cloud.firestore {
         // Device keys are public cryptographic material; private crypto state
         // must never be written to this collection.
         allow read: if isAuthenticated();
-        allow create, update, delete: if isOwner(userId);
+        // A registered device identity is immutable. Re-uploading the same
+        // signed keys is allowed, but a device cannot silently replace them.
+        allow create: if isOwner(userId) &&
+          request.resource.data.deviceId == deviceId &&
+          request.resource.data.deviceKeys is map;
+        allow update: if isOwner(userId) &&
+          request.resource.data.deviceId == resource.data.deviceId &&
+          request.resource.data.deviceKeys == resource.data.deviceKeys;
+        allow delete: if isOwner(userId);
 
         match /oneTimeKeys/{keyId} {
           allow read: if isAuthenticated();
