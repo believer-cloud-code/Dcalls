@@ -338,16 +338,14 @@ class QrDeviceLinkService {
       throw new Error('Verify the matching device code before transferring account keys.');
     }
     const ref = messageRef(uid, sessionId, 'secrets');
+    const ciphertext = source.channel.seal(serializedBundle, aadFor(sessionId));
     await runTransaction(db, async (transaction) => {
       const existing = await transaction.get(ref);
       const current = await transaction.get(sessionRef(uid, sessionId));
       if (existing.exists() || !current.exists() || current.data().state !== 'verified') {
         throw new Error('Account keys have already been sent or this pairing session is no longer verified.');
       }
-      transaction.set(ref, {
-        ciphertext: source.channel!.seal(serializedBundle, aadFor(sessionId)),
-        createdAt: serverTimestamp(),
-      });
+      transaction.set(ref, { ciphertext, createdAt: serverTimestamp() });
     });
   }
 
@@ -374,19 +372,17 @@ class QrDeviceLinkService {
       throw new Error('The new-device secure channel is unavailable.');
     }
     const ref = messageRef(uid, sessionId, 'secretsAck');
+    const ciphertext = scanner.channel.seal(
+      JSON.stringify({ protocol: PROTOCOL, version: VERSION, type: 'secrets-received' }),
+      aadFor(sessionId),
+    );
     await runTransaction(db, async (transaction) => {
       const existing = await transaction.get(ref);
       const current = await transaction.get(sessionRef(uid, sessionId));
       if (existing.exists() || !current.exists() || current.data().state !== 'verified') {
         throw new Error('The transfer acknowledgement already exists or the session is no longer active.');
       }
-      transaction.set(ref, {
-        ciphertext: scanner.channel!.seal(
-          JSON.stringify({ protocol: PROTOCOL, version: VERSION, type: 'secrets-received' }),
-          aadFor(sessionId),
-        ),
-        createdAt: serverTimestamp(),
-      });
+      transaction.set(ref, { ciphertext, createdAt: serverTimestamp() });
     });
   }
 
