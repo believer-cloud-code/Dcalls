@@ -34,7 +34,7 @@ async function stableMatrixUserId(firebaseUid: string): Promise<string> {
     new TextEncoder().encode(firebaseUid)
   );
   const suffix = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
-  return `@dc-${suffix}: ${MATRIX_DOMAIN}`.replace(': ', ':');
+  return `@dc-${suffix}:${MATRIX_DOMAIN}`;
 }
 
 /**
