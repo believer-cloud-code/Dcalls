@@ -1,5 +1,6 @@
 import {
   DeviceId,
+  DeviceLists,
   initAsync,
   KeysClaimRequest,
   KeysQueryRequest,
@@ -314,6 +315,81 @@ class MatrixCryptoService {
         );
       }
     }
+  }
+
+
+  /**
+   * Imports encrypted to-device events delivered to this installation.
+   * Inbox records are acknowledged only after the Matrix state machine accepts
+   * the complete batch. The caller should run this when a chat becomes active.
+   */
+  async processPendingDeviceEvents(firebaseUid: string, chatId: string): Promise<number> {
+    if (!firebaseUid || !chatId) throw new Error('A signed-in user and chat are required.');
+
+    const machine = await this.getMachine(firebaseUid);
+    const deviceId = await this.getDeviceId(firebaseUid);
+    const inbox = await deviceRegistryService.listPendingDeviceEvents(firebaseUid, deviceId, chatId);
+    if (!inbox.length) return 0;
+
+    const matrixToFirebaseUid = new Map<string, string>();
+    matrixToFirebaseUid.set(await stableMatrixUserId(firebaseUid), firebaseUid);
+    const events: Record<string, unknown>[] = [];
+
+    for (const item of inbox) {
+      const senderUid = String(item.senderUid ?? '');
+      if (!senderUid || typeof item.payload !== 'string') {
+        throw new Error('An encrypted device inbox record is missing its sender or payload.');
+      }
+
+      const event = JSON.parse(item.payload) as Record<string, unknown>;
+      const expectedSender = await stableMatrixUserId(senderUid);
+      if (event.sender !== expectedSender ||
+          typeof event.type !== 'string' ||
+          !event.content ||
+          typeof event.content !== 'object') {
+        throw new Error('An encrypted device event failed sender or envelope validation.');
+      }
+
+      matrixToFirebaseUid.set(expectedSender, senderUid);
+      events.push(event);
+    }
+
+    // MSC4186 semantics let us process device events without falsely telling
+    // the SDK that the server has zero one-time keys remaining.
+    await machine.receiveSyncChangesMsc4186(
+      JSON.stringify(events),
+      new DeviceLists([], []),
+      new Map<string, number>(),
+      undefined,
+      undefined,
+    );
+
+    // Only acknowledge after the crypto store has accepted the batch.
+    for (const item of inbox) {
+      await deviceRegistryService.deleteDeviceInboxEvent(firebaseUid, deviceId, item.id);
+    }
+
+    // Handle protocol work generated while processing the incoming events.
+    await this.publishInitialDeviceKeys(firebaseUid);
+    const outgoing = await machine.outgoingRequests();
+    for (const request of outgoing) {
+      if (request instanceof KeysQueryRequest) {
+        await this.processKeysQuery(machine, request, matrixToFirebaseUid);
+      } else if (request instanceof KeysClaimRequest) {
+        await this.processKeysClaim(machine, request, matrixToFirebaseUid, chatId);
+      } else if (request instanceof ToDeviceRequest) {
+        await this.processToDevice(
+          machine,
+          request,
+          firebaseUid,
+          deviceId,
+          matrixToFirebaseUid,
+          chatId,
+        );
+      }
+    }
+
+    return inbox.length;
   }
 
   async getDeviceId(firebaseUid: string): Promise<string> {
