@@ -231,14 +231,34 @@ export const deviceRegistryService = {
   },
 
 
-  async listPendingDeviceEvents(ownerUid: string, deviceId: string, chatId: string) {
+  async listPendingDeviceEvents(
+    ownerUid: string,
+    deviceId: string,
+    chatId: string,
+  ): Promise<Array<{
+    id: string;
+    senderUid?: string;
+    payload?: string;
+    createdAt?: { toMillis?: () => number };
+    ref: ReturnType<typeof doc>;
+  }>> {
     if (!ownerUid || !deviceId || !chatId) {
       throw new Error('A device owner, device and chat are required.');
     }
     const inboxRef = collection(db, 'users', ownerUid, 'devices', deviceId, 'inbox');
     const snapshot = await getDocs(query(inboxRef, where('chatId', '==', chatId)));
     return snapshot.docs
-      .map((eventDoc) => ({ id: eventDoc.id, ...eventDoc.data(), ref: eventDoc.ref }))
+      .map((eventDoc) => ({
+        id: eventDoc.id,
+        ...eventDoc.data(),
+        ref: eventDoc.ref,
+      }) as {
+        id: string;
+        senderUid?: string;
+        payload?: string;
+        createdAt?: { toMillis?: () => number };
+        ref: typeof eventDoc.ref;
+      })
       .sort((a: any, b: any) => {
         const aTime = a.createdAt?.toMillis?.() ?? 0;
         const bTime = b.createdAt?.toMillis?.() ?? 0;
@@ -250,8 +270,19 @@ export const deviceRegistryService = {
     await deleteDoc(doc(db, 'users', ownerUid, 'devices', deviceId, 'inbox', eventId));
   },
 
-  async listPublicDevices(ownerUid: string) {
+  async listPublicDevices(ownerUid: string): Promise<Array<{
+    id: string;
+    deviceKeys?: Record<string, unknown>;
+    [key: string]: unknown;
+  }>> {
     const snapshot = await getDocs(collection(db, 'users', ownerUid, 'devices'));
-    return snapshot.docs.map((device) => ({ id: device.id, ...device.data() }));
+    return snapshot.docs.map((device) => ({
+      id: device.id,
+      ...device.data(),
+    }) as {
+      id: string;
+      deviceKeys?: Record<string, unknown>;
+      [key: string]: unknown;
+    });
   },
 };
