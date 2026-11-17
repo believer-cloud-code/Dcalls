@@ -3,6 +3,7 @@ import {
   EstablishedHpkeChannel,
   HpkeRecipientChannel,
   HpkeSenderChannel,
+  UnidirectionalRecipientChannel,
   UnidirectionalSenderChannel,
 } from '@matrix-org/matrix-sdk-crypto-wasm';
 import {
@@ -31,6 +32,7 @@ interface SourceSession {
   deviceId: string;
   expiresAt: number;
   recipient: HpkeRecipientChannel;
+  joinRequest?: { deviceId: string; deviceName: string; channel: UnidirectionalRecipientChannel };
   channel?: EstablishedHpkeChannel;
 }
 
@@ -171,6 +173,7 @@ class QrDeviceLinkService {
         version: VERSION,
         type: 'join',
         deviceId,
+        deviceName: `${navigator.platform || 'Unknown platform'} · ${navigator.userAgent.slice(0, 80)}`,
         nonce: randomHex(),
       }),
       aadFor(payload.sessionId),
@@ -206,19 +209,23 @@ class QrDeviceLinkService {
     return payload.sessionId;
   }
 
-  async acceptJoin(uid: string, sessionId: string): Promise<string> {
+  async inspectJoin(uid: string, sessionId: string): Promise<{ deviceId: string; deviceName: string }> {
     assertSignedIn(uid);
     const source = this.sourceSessions.get(sessionId);
     if (!source || source.ownerUid !== uid) throw new Error('The source device has no active pairing session.');
     assertNotExpired(source.expiresAt);
+    if (source.joinRequest) {
+      return { deviceId: source.joinRequest.deviceId, deviceName: source.joinRequest.deviceName };
+    }
 
     const parent = await getDoc(sessionRef(uid, sessionId));
     const join = await getDoc(messageRef(uid, sessionId, 'join'));
     if (!parent.exists() || parent.data().state !== 'joined' || !join.exists()) {
       throw new Error('No new device has joined this pairing session yet.');
     }
-    if (join.data().senderDeviceId === source.deviceId) {
-      throw new Error('A device cannot link to itself.');
+    const senderDeviceId = String(join.data().senderDeviceId ?? '');
+    if (!senderDeviceId || senderDeviceId === source.deviceId || parent.data().joinedDeviceId !== senderDeviceId) {
+      throw new Error('The pairing request does not identify a valid new device.');
     }
 
     const opened = source.recipient.establishChannel(
@@ -230,12 +237,35 @@ class QrDeviceLinkService {
       request.protocol !== PROTOCOL ||
       request.version !== VERSION ||
       request.type !== 'join' ||
-      request.deviceId !== join.data().senderDeviceId
+      request.deviceId !== senderDeviceId
     ) {
       throw new Error('The new device sent an invalid pairing handshake.');
     }
+    const deviceName = typeof request.deviceName === 'string'
+      ? request.deviceName.slice(0, 120)
+      : 'Unknown Dcalls device';
+    source.joinRequest = { deviceId: senderDeviceId, deviceName, channel: opened.channel };
+    return { deviceId: senderDeviceId, deviceName };
+  }
 
-    const accepted = opened.channel.establishBidirectionalChannel(
+  async acceptJoin(uid: string, sessionId: string): Promise<string> {
+    assertSignedIn(uid);
+    const source = this.sourceSessions.get(sessionId);
+    if (!source || source.ownerUid !== uid || !source.joinRequest) {
+      throw new Error('Inspect the new-device request before approving it.');
+    }
+    assertNotExpired(source.expiresAt);
+
+    const parent = await getDoc(sessionRef(uid, sessionId));
+    if (
+      !parent.exists() ||
+      parent.data().state !== 'joined' ||
+      parent.data().joinedDeviceId !== source.joinRequest.deviceId
+    ) {
+      throw new Error('The pairing request changed before approval.');
+    }
+
+    const accepted = source.joinRequest.channel.establishBidirectionalChannel(
       JSON.stringify({ protocol: PROTOCOL, version: VERSION, type: 'accept', nonce: randomHex() }),
       aadFor(sessionId),
     );
@@ -245,7 +275,12 @@ class QrDeviceLinkService {
       const current = await transaction.get(ref);
       const acceptRef = messageRef(uid, sessionId, 'accept');
       const existingAccept = await transaction.get(acceptRef);
-      if (!current.exists() || current.data().state !== 'joined' || existingAccept.exists()) {
+      if (
+        !current.exists() ||
+        current.data().state !== 'joined' ||
+        current.data().joinedDeviceId !== source.joinRequest?.deviceId ||
+        existingAccept.exists()
+      ) {
         throw new Error('The pairing session changed or was already accepted.');
       }
       transaction.set(acceptRef, {
@@ -254,6 +289,7 @@ class QrDeviceLinkService {
       });
       transaction.update(ref, { state: 'accepted', updatedAt: serverTimestamp() });
     });
+    source.joinRequest = undefined;
     return checkCode(accepted.channel);
   }
 
