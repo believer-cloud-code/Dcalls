@@ -330,7 +330,13 @@ class QrDeviceLinkService {
       const current = await transaction.get(ref);
       if (!current.exists()) return;
       const state = current.data().state;
-      if (state === 'verified' || state === 'cancelled') return;
+      if (state === 'cancelled') return;
+      if (state === 'verified') {
+        const secrets = await transaction.get(messageRef(uid, sessionId, 'secrets'));
+        if (secrets.exists()) {
+          throw new Error('Account signing keys have already been sent; this pairing cannot be cancelled safely.');
+        }
+      }
       transaction.update(ref, { state: 'cancelled', updatedAt: serverTimestamp() });
     });
     this.sourceSessions.delete(sessionId);
@@ -357,7 +363,7 @@ class QrDeviceLinkService {
       if (existing.exists() || !current.exists() || current.data().state !== 'verified') {
         throw new Error('Account keys have already been sent or this pairing session is no longer verified.');
       }
-      transaction.set(ref, { ciphertext, createdAt: serverTimestamp() });
+      transaction.set(ref, { senderDeviceId: source.deviceId, ciphertext, createdAt: serverTimestamp() });
     });
   }
 
@@ -394,7 +400,7 @@ class QrDeviceLinkService {
       if (existing.exists() || !current.exists() || current.data().state !== 'verified') {
         throw new Error('The transfer acknowledgement already exists or the session is no longer active.');
       }
-      transaction.set(ref, { ciphertext, createdAt: serverTimestamp() });
+      transaction.set(ref, { senderDeviceId: scanner.deviceId, ciphertext, createdAt: serverTimestamp() });
     });
   }
 
