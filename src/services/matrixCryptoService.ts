@@ -1,12 +1,16 @@
 import {
   DeviceId,
   DeviceLists,
+  DecryptionSettings,
+  EncryptionSettings,
   initAsync,
   KeysClaimRequest,
   KeysQueryRequest,
   KeysUploadRequest,
   OlmMachine,
+  RoomId,
   ToDeviceRequest,
+  TrustRequirement,
   UserId,
 } from '@matrix-org/matrix-sdk-crypto-wasm';
 import { getMatrixStorePassphrase } from './cryptoStoreVault';
@@ -262,49 +266,99 @@ class MatrixCryptoService {
     await machine.markRequestAsSent(request.id, request.type, JSON.stringify({}));
   }
 
+
+  private async stableRoomId(chatId: string): Promise<RoomId> {
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(chatId));
+    const suffix = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('').slice(0, 32);
+    return new RoomId(`!dc-${suffix}:${MATRIX_DOMAIN}`);
+  }
+
   /**
-   * Queries a peer's published Matrix devices, claims the required one-time
-   * keys, and delivers any resulting Olm to-device handshake events.
-   *
-   * This establishes pairwise Olm sessions only. It does not yet create/share
-   * a Megolm room key or encrypt the Dcalls chat message itself.
+   * Establishes pairwise Olm sessions, shares a Megolm room key with every
+   * registered device in the chat, and routes the encrypted key-share events
+   * through the Firestore device inbox.
    */
-  async preparePeerSessions(
+  async prepareChatRoomKey(
     firebaseUid: string,
     peerFirebaseUids: string[],
     chatId: string,
-  ): Promise<void> {
+  ): Promise<RoomId> {
     if (!firebaseUid || !chatId) throw new Error('A signed-in user and chat are required.');
     const peers = [...new Set(peerFirebaseUids)].filter((uid) => uid && uid !== firebaseUid);
-    if (!peers.length) return;
+    if (!peers.length) throw new Error('A chat must have at least one other participant.');
 
     const machine = await this.getMachine(firebaseUid);
     await this.publishInitialDeviceKeys(firebaseUid);
 
     const matrixToFirebaseUid = new Map<string, string>();
-    matrixToFirebaseUid.set(await stableMatrixUserId(firebaseUid), firebaseUid);
-    const userIds: UserId[] = [];
-    for (const peerUid of peers) {
-      const matrixUserId = await stableMatrixUserId(peerUid);
-      matrixToFirebaseUid.set(matrixUserId, peerUid);
-      userIds.push(new UserId(matrixUserId));
+    const allFirebaseUids = [firebaseUid, ...peers];
+    for (const uid of allFirebaseUids) {
+      matrixToFirebaseUid.set(await stableMatrixUserId(uid), uid);
     }
 
-    const queryRequest = machine.queryKeysForUsers(userIds);
+    // Matrix invalidates UserId wrappers after queryKeysForUsers, so create
+    // fresh wrappers for each SDK operation.
+    const queryUsers = await Promise.all(allFirebaseUids.map(async (uid) =>
+      new UserId(await stableMatrixUserId(uid))
+    ));
+    const queryRequest = machine.queryKeysForUsers(queryUsers);
     if (!(queryRequest instanceof KeysQueryRequest)) {
       throw new Error('The Matrix SDK did not produce a device-key query request.');
     }
     await this.processKeysQuery(machine, queryRequest, matrixToFirebaseUid);
 
-    const claimRequest = await machine.getMissingSessions(userIds);
+    const sessionUsers = await Promise.all(allFirebaseUids.map(async (uid) =>
+      new UserId(await stableMatrixUserId(uid))
+    ));
+    const claimRequest = await machine.getMissingSessions(sessionUsers);
     if (claimRequest instanceof KeysClaimRequest) {
       await this.processKeysClaim(machine, claimRequest, matrixToFirebaseUid, chatId);
     }
 
+    const roomId = await this.stableRoomId(chatId);
+    const roomUsers = await Promise.all(allFirebaseUids.map(async (uid) =>
+      new UserId(await stableMatrixUserId(uid))
+    ));
+    const roomKeyRequests = await machine.shareRoomKey(
+      roomId,
+      roomUsers,
+      new EncryptionSettings(),
+    );
+
     const senderDeviceId = await this.getDeviceId(firebaseUid);
+    for (const request of roomKeyRequests) {
+      await this.processToDevice(
+        machine,
+        request,
+        firebaseUid,
+        senderDeviceId,
+        matrixToFirebaseUid,
+        chatId,
+      );
+    }
+
+    // Drain any additional protocol messages produced by the SDK operations.
     const outgoing = await machine.outgoingRequests();
     for (const request of outgoing) {
-      if (request instanceof ToDeviceRequest) {
+      if (request instanceof KeysUploadRequest) {
+        // The SDK may replenish keys while processing the exchange.
+        const body = JSON.parse(request.body) as {
+          device_keys?: Record<string, unknown>;
+          one_time_keys?: Record<string, Record<string, unknown>>;
+          fallback_keys?: Record<string, Record<string, unknown>>;
+        };
+        if (!body.device_keys) throw new Error('The Matrix SDK generated an invalid device-key upload.');
+        await deviceRegistryService.publishDeviceKeys(firebaseUid, senderDeviceId, {
+          deviceKeys: body.device_keys,
+          oneTimeKeys: body.one_time_keys ?? {},
+          fallbackKeys: body.fallback_keys ?? {},
+        });
+        await machine.markRequestAsSent(
+          request.id,
+          request.type,
+          JSON.stringify({ one_time_key_counts: {} }),
+        );
+      } else if (request instanceof ToDeviceRequest) {
         await this.processToDevice(
           machine,
           request,
@@ -315,6 +369,76 @@ class MatrixCryptoService {
         );
       }
     }
+
+    return roomId;
+  }
+
+  /** Backwards-compatible name for the pairwise-session preparation step. */
+  async preparePeerSessions(
+    firebaseUid: string,
+    peerFirebaseUids: string[],
+    chatId: string,
+  ): Promise<void> {
+    await this.prepareChatRoomKey(firebaseUid, peerFirebaseUids, chatId);
+  }
+
+  async encryptChatMessage(
+    firebaseUid: string,
+    peerFirebaseUids: string[],
+    chatId: string,
+    messageId: string,
+    plaintext: string,
+  ): Promise<string> {
+    const machine = await this.getMachine(firebaseUid);
+    const roomId = await this.prepareChatRoomKey(firebaseUid, peerFirebaseUids, chatId);
+    const content = JSON.stringify({ msgtype: 'm.text', body: plaintext });
+    const encrypted = await machine.encryptRoomEvent(roomId, 'm.room.message', content);
+    if (!encrypted) throw new Error('The Matrix SDK returned an empty encrypted message.');
+    return JSON.stringify({
+      roomId: roomId.toString(),
+      eventId: messageId,
+      content: JSON.parse(encrypted),
+    });
+  }
+
+  async decryptChatMessage(
+    firebaseUid: string,
+    chatId: string,
+    senderFirebaseUid: string,
+    messageId: string,
+    encryptedPayload: string,
+  ): Promise<string> {
+    const machine = await this.getMachine(firebaseUid);
+    const payload = JSON.parse(encryptedPayload) as {
+      roomId?: string;
+      eventId?: string;
+      content?: Record<string, unknown>;
+    };
+    const roomId = await this.stableRoomId(chatId);
+    if (payload.roomId !== roomId.toString() || !payload.content) {
+      throw new Error('The encrypted message does not match this chat.');
+    }
+
+    const event = {
+      type: 'm.room.encrypted',
+      room_id: roomId.toString(),
+      event_id: `$${payload.eventId || messageId}`,
+      sender: await stableMatrixUserId(senderFirebaseUid),
+      origin_server_ts: Date.now(),
+      content: payload.content,
+    };
+    const decrypted = await machine.decryptRoomEvent(
+      JSON.stringify(event),
+      roomId,
+      new DecryptionSettings(TrustRequirement.Untrusted),
+    );
+    const decryptedEvent = JSON.parse(decrypted.event) as {
+      content?: { body?: string };
+    };
+    if (typeof decryptedEvent.content?.body !== 'string') {
+      throw new Error('The decrypted Matrix event did not contain a text message.');
+    }
+    return decryptedEvent.content.body;
   }
 
 
