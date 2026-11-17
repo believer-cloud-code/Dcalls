@@ -36,7 +36,8 @@ Dcalls has no Matrix homeserver. Pairing therefore uses a Dcalls-specific Firest
 - Both devices must be signed into the same Firebase account. Firestore rules must prevent other accounts from reading or writing the session.
 - Do not store HPKE private channel state, Olm private keys, cross-signing seeds, secret bundles, or plaintext chat history in Firestore.
 - The QR contains only a versioned Dcalls pairing envelope, session ID and HPKE public key. It contains no Firebase credential or account recovery secret.
-- Explicit approval on the existing device is required before sending a secrets bundle.
+- The existing device decrypts and displays the requesting device's ID and client/platform label before the owner can approve it.
+- Both devices require explicit confirmation that the displayed HPKE check codes match before sending a secrets bundle.
 
 A successful HPKE channel proves that both endpoints share a secret; the users must still compare the SDK-generated check code to defend against a man-in-the-middle attack.
 
