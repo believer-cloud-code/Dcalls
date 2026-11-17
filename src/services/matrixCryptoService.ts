@@ -188,7 +188,7 @@ class MatrixCryptoService {
     const body = JSON.parse(request.body) as {
       device_keys?: Record<string, string[]>;
     };
-    const response: { device_keys: Record<string, Record<string, unknown>>; failures: Record<string, unknown> } = {
+    const response: { device_keys: Record<string, Record<string, unknown>>; failures: Record<string, unknown>; master_keys: Record<string, unknown> } = {
       device_keys: {},
       failures: {},
       master_keys: {},
