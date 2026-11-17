@@ -143,6 +143,22 @@ service cloud.firestore {
           allow delete: if isOwner(userId);
         }
 
+        match /fallbackKeyUsage/{keyId} {
+          // A participant may mark a published fallback key as used. The
+          // owning device reads this state during its next crypto sync.
+          allow read: if isOwner(userId);
+          allow create: if isAuthenticated() &&
+            request.resource.data.keyId is string &&
+            request.resource.data.algorithm is string &&
+            request.resource.data.chatId is string &&
+            request.resource.data.claimedBy == request.auth.uid &&
+            request.resource.data.usedAt == request.time &&
+            exists(/databases/$(database)/documents/chats/$(request.resource.data.chatId)) &&
+            request.auth.uid in get(/databases/$(database)/documents/chats/$(request.resource.data.chatId)).data.participants &&
+            userId in get(/databases/$(database)/documents/chats/$(request.resource.data.chatId)).data.participants;
+          allow update, delete: if isOwner(userId);
+        }
+
         match /inbox/{eventId} {
           allow read, update, delete: if isOwner(userId);
           allow create: if isAuthenticated() &&
