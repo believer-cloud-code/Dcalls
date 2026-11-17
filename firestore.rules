@@ -72,19 +72,34 @@ service cloud.firestore {
           request.resource.data.sourceDeviceId == resource.data.sourceDeviceId &&
           request.resource.data.hpkePublicKey == resource.data.hpkePublicKey &&
           request.resource.data.expiresAt == resource.data.expiresAt &&
+          request.resource.data.updatedAt == request.time &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             'state', 'joinedDeviceId', 'updatedAt', 'verifiedAt'
           ]) &&
           (
             (resource.data.state == 'waiting' &&
               request.resource.data.state == 'joined' &&
-              request.resource.data.joinedDeviceId is string) ||
+              request.resource.data.joinedDeviceId is string &&
+              !('verifiedAt' in request.resource.data)) ||
             (resource.data.state == 'joined' &&
-              request.resource.data.state == 'accepted') ||
+              request.resource.data.state == 'accepted' &&
+              request.resource.data.joinedDeviceId == resource.data.joinedDeviceId &&
+              !('verifiedAt' in request.resource.data)) ||
             (resource.data.state == 'accepted' &&
-              request.resource.data.state == 'verified') ||
+              request.resource.data.state == 'verified' &&
+              request.resource.data.joinedDeviceId == resource.data.joinedDeviceId &&
+              request.resource.data.verifiedAt == request.time) ||
             (resource.data.state in ['waiting', 'joined', 'accepted'] &&
-              request.resource.data.state == 'cancelled')
+              request.resource.data.state == 'cancelled' &&
+              (('joinedDeviceId' in resource.data &&
+                request.resource.data.joinedDeviceId == resource.data.joinedDeviceId) ||
+               (!('joinedDeviceId' in resource.data) &&
+                !('joinedDeviceId' in request.resource.data)))) ||
+            (resource.data.state == 'verified' &&
+              request.resource.data.state == 'cancelled' &&
+              request.resource.data.joinedDeviceId == resource.data.joinedDeviceId &&
+              request.resource.data.verifiedAt == resource.data.verifiedAt &&
+              !exists(/databases/$(database)/documents/users/$(userId)/deviceLinkSessions/$(sessionId)/messages/secrets))
           );
         allow delete: if isOwner(userId) &&
           resource.data.state != 'verified';
@@ -107,9 +122,11 @@ service cloud.firestore {
               (messageId == 'final' &&
                 get(/databases/$(database)/documents/users/$(userId)/deviceLinkSessions/$(sessionId)).data.state == 'accepted') ||
               (messageId == 'secrets' &&
-                get(/databases/$(database)/documents/users/$(userId)/deviceLinkSessions/$(sessionId)).data.state == 'verified') ||
+                get(/databases/$(database)/documents/users/$(userId)/deviceLinkSessions/$(sessionId)).data.state == 'verified' &&
+                request.resource.data.senderDeviceId == get(/databases/$(database)/documents/users/$(userId)/deviceLinkSessions/$(sessionId)).data.sourceDeviceId) ||
               (messageId == 'secretsAck' &&
-                get(/databases/$(database)/documents/users/$(userId)/deviceLinkSessions/$(sessionId)).data.state == 'verified')
+                get(/databases/$(database)/documents/users/$(userId)/deviceLinkSessions/$(sessionId)).data.state == 'verified' &&
+                request.resource.data.senderDeviceId == get(/databases/$(database)/documents/users/$(userId)/deviceLinkSessions/$(sessionId)).data.joinedDeviceId)
             );
           allow update, delete: if false;
         }
