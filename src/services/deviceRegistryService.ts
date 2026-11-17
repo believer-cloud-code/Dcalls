@@ -14,6 +14,29 @@ import {
 } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 
+
+function canonicalize(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, item]) => [key, canonicalize(item)]),
+    );
+  }
+  return value;
+}
+
+function mergeNestedRecords(left: unknown, right: unknown): unknown {
+  if (!left || typeof left !== 'object' || Array.isArray(left) ||
+      !right || typeof right !== 'object' || Array.isArray(right)) return right;
+  const result: Record<string, unknown> = { ...(left as Record<string, unknown>) };
+  for (const [key, value] of Object.entries(right as Record<string, unknown>)) {
+    result[key] = key in result ? mergeNestedRecords(result[key], value) : value;
+  }
+  return result;
+}
+
 export interface PublishedDeviceKeys {
   deviceKeys: Record<string, unknown>;
   oneTimeKeys?: Record<string, Record<string, unknown>>;
@@ -55,13 +78,13 @@ export const deviceRegistryService = {
       if (existing.exists()) {
         const data = existing.data();
         const sameIdentity =
-          JSON.stringify(data.masterKey) === JSON.stringify(keys.masterKey) &&
-          JSON.stringify(data.selfSigningKey) === JSON.stringify(keys.selfSigningKey) &&
-          JSON.stringify(data.userSigningKey) === JSON.stringify(keys.userSigningKey);
+          JSON.stringify(canonicalize(data.masterKey)) === JSON.stringify(canonicalize(keys.masterKey)) &&
+          JSON.stringify(canonicalize(data.selfSigningKey)) === JSON.stringify(canonicalize(keys.selfSigningKey)) &&
+          JSON.stringify(canonicalize(data.userSigningKey)) === JSON.stringify(canonicalize(keys.userSigningKey));
         if (!sameIdentity) {
           throw new Error('A different cross-signing identity is already registered. Identity reset is intentionally blocked.');
         }
-        transaction.update(ref, { signatures: keys.signatures, updatedAt: serverTimestamp() });
+        transaction.update(ref, { signatures: mergeNestedRecords(data.signatures, keys.signatures), updatedAt: serverTimestamp() });
         return;
       }
       transaction.set(ref, {
@@ -79,20 +102,11 @@ export const deviceRegistryService = {
 
   async publishCrossSigningSignatures(ownerUid: string, newSignatures: Record<string, unknown>): Promise<void> {
     const ref = doc(db, 'users', ownerUid, 'crossSigning', 'current');
-    const merge = (left: unknown, right: unknown): unknown => {
-      if (!left || typeof left !== 'object' || Array.isArray(left) ||
-          !right || typeof right !== 'object' || Array.isArray(right)) return right;
-      const result: Record<string, unknown> = { ...(left as Record<string, unknown>) };
-      for (const [key, value] of Object.entries(right as Record<string, unknown>)) {
-        result[key] = key in result ? merge(result[key], value) : value;
-      }
-      return result;
-    };
     await runTransaction(db, async (transaction) => {
       const snapshot = await transaction.get(ref);
       if (!snapshot.exists()) throw new Error('The account cross-signing identity has not been published.');
       transaction.update(ref, {
-        signatures: merge(snapshot.data().signatures, newSignatures),
+        signatures: mergeNestedRecords(snapshot.data().signatures, newSignatures),
         updatedAt: serverTimestamp(),
       });
     });
