@@ -97,6 +97,30 @@ test('device identities are owner-created and immutable; revocation is one-way',
   }));
 });
 
+test('one-time keys can be claimed once by a participant in the shared chat', async () => {
+  await env.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), 'users/alice/devices/alice-device/oneTimeKeys/otk-1'), {
+      key: { key: 'public-one-time-key' },
+      keyId: 'otk-1',
+      algorithm: 'signed_curve25519',
+      claimedBy: null,
+    });
+  });
+
+  const keyRef = doc(bob(), 'users/alice/devices/alice-device/oneTimeKeys/otk-1');
+  await assertSucceeds(updateDoc(keyRef, {
+    claimedBy: 'bob',
+    chatId: 'chat-1',
+    claimedAt: serverTimestamp(),
+  }));
+
+  await assertFails(updateDoc(keyRef, {
+    claimedBy: 'alice',
+    chatId: 'chat-1',
+    claimedAt: serverTimestamp(),
+  }));
+});
+
 test('QR pairing session creation requires a valid id and active source device', async () => {
   const validSession = doc(alice(), 'users/alice/deviceLinkSessions/0123456789abcdef0123456789abcdef');
   await assertSucceeds(setDoc(validSession, {
