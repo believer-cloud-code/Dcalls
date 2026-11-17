@@ -9,7 +9,7 @@ import {
   setDoc,
   where,
 } from 'firebase/firestore';
-import { db } from '../firebase';
+import { auth, db } from '../firebase';
 
 export interface PublishedDeviceKeys {
   deviceKeys: Record<string, unknown>;
@@ -57,10 +57,14 @@ export const deviceRegistryService = {
         if (!key || typeof key !== 'object') {
           throw new Error('Invalid one-time key payload.');
         }
-        return setDoc(
-          doc(db, 'users', ownerUid, 'devices', deviceId, 'oneTimeKeys', encodeURIComponent(keyId)),
-          { keyId, key, claimedBy: null, createdAt: serverTimestamp() },
-        );
+        const keyRef = doc(db, 'users', ownerUid, 'devices', deviceId, 'oneTimeKeys', encodeURIComponent(keyId));
+        // Never reset a previously claimed key to "available".
+        return runTransaction(db, async (transaction) => {
+          const existing = await transaction.get(keyRef);
+          if (!existing.exists()) {
+            transaction.set(keyRef, { keyId, key, claimedBy: null, createdAt: serverTimestamp() });
+          }
+        });
       });
       await Promise.all(writes);
     }
@@ -78,6 +82,9 @@ export const deviceRegistryService = {
     const keysRef = collection(db, 'users', ownerUid, 'devices', deviceId, 'oneTimeKeys');
     const available = query(keysRef, where('claimedBy', '==', null), limit(1));
 
+    const claimantUid = auth.currentUser?.uid;
+    if (!claimantUid) throw new Error('Sign in before claiming a device key.');
+
     return runTransaction(db, async (transaction) => {
       const snapshot = await transaction.get(available);
       if (snapshot.empty) return null;
@@ -89,7 +96,7 @@ export const deviceRegistryService = {
       }
 
       transaction.update(keyDoc.ref, {
-        claimedBy: 'pending-authenticated-claim',
+        claimedBy: claimantUid,
         chatId,
         claimedAt: serverTimestamp(),
       });
@@ -112,10 +119,13 @@ export const deviceRegistryService = {
       throw new Error('The encrypted device event exceeds the supported size.');
     }
 
+    const senderUid = auth.currentUser?.uid;
+    if (!senderUid) throw new Error('Sign in before sending an encrypted device event.');
+
     await setDoc(
       doc(db, 'users', recipientUid, 'devices', recipientDeviceId, 'inbox', eventId),
       {
-        senderUid: (await import('firebase/auth')).getAuth().currentUser?.uid ?? null,
+        senderUid,
         chatId,
         payload,
         createdAt: serverTimestamp(),
