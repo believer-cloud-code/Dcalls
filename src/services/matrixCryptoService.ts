@@ -122,6 +122,10 @@ class MatrixCryptoService {
       }
 
       const deviceId = await this.getDeviceId(firebaseUid);
+      const expectedUserId = await stableMatrixUserId(firebaseUid);
+      if (body.device_keys.device_id !== deviceId || body.device_keys.user_id !== expectedUserId) {
+        throw new Error('The Matrix SDK device keys do not match this installation identity.');
+      }
       await deviceRegistryService.publishDeviceKeys(firebaseUid, deviceId, {
         deviceKeys: body.device_keys,
         oneTimeKeys: body.one_time_keys ?? {},
@@ -351,6 +355,10 @@ class MatrixCryptoService {
           fallback_keys?: Record<string, Record<string, unknown>>;
         };
         if (!body.device_keys) throw new Error('The Matrix SDK generated an invalid device-key upload.');
+        const expectedUserId = await stableMatrixUserId(firebaseUid);
+        if (body.device_keys.device_id !== senderDeviceId || body.device_keys.user_id !== expectedUserId) {
+          throw new Error('The replenished Matrix device keys do not match this installation identity.');
+        }
         await deviceRegistryService.publishDeviceKeys(firebaseUid, senderDeviceId, {
           deviceKeys: body.device_keys,
           oneTimeKeys: body.one_time_keys ?? {},
