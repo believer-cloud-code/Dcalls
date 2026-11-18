@@ -289,6 +289,13 @@ test('revoking a joined device blocks QR pairing progression and key transfer', 
     updatedAt: serverTimestamp(),
   }));
 
+  // Cancellation remains available to the account owner after revocation.
+  await assertSucceeds(updateDoc(doc(db, 'users/alice/deviceLinkSessions/joined-session-000000000000'), {
+    state: 'cancelled',
+    joinedDeviceId: 'new-device',
+    updatedAt: serverTimestamp(),
+  }));
+
   await assertFails(setDoc(doc(db, 'users/alice/deviceLinkSessions/accepted-session-00000000000/messages/final'), {
     ciphertext: 'encrypted-final',
     createdAt: serverTimestamp(),
