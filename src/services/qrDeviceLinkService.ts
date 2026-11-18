@@ -45,6 +45,7 @@ interface ScannerSession {
   deviceId: string;
   expiresAt: number;
   sender: UnidirectionalSenderChannel;
+  joinCiphertext: string;
   channel?: EstablishedHpkeChannel;
   finalCiphertext?: string;
   receivedSecretsBundle?: string;
@@ -175,7 +176,8 @@ class QrDeviceLinkService {
         current.exists() &&
         current.data().state === 'joined' &&
         existingJoin.exists() &&
-        existingJoin.data().senderDeviceId === deviceId
+        existingJoin.data().senderDeviceId === deviceId &&
+        existingJoin.data().ciphertext === existingScanner.joinCiphertext
       ) {
         return payload.sessionId;
       }
@@ -218,6 +220,7 @@ class QrDeviceLinkService {
       deviceId,
       expiresAt,
       sender: initial.channel,
+      joinCiphertext: initial.message,
     });
     try {
       await runTransaction(db, async (transaction) => {
