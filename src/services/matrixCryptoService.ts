@@ -822,27 +822,70 @@ class MatrixCryptoService {
       window.dispatchEvent(new CustomEvent('dcalls:matrix-keys-updated', { detail: { chatId } }));
     }
 
-    // Handle protocol work generated while processing the incoming events.
-    await this.publishInitialDeviceKeysUnlocked(firebaseUid);
-    const outgoing = await machine.outgoingRequests();
-    for (const request of outgoing) {
-      if (request instanceof KeysQueryRequest) {
-        await this.processKeysQuery(machine, request, matrixToFirebaseUid);
-      } else if (request instanceof KeysClaimRequest) {
-        await this.processKeysClaim(machine, request, matrixToFirebaseUid, chatId);
-      } else if (request instanceof ToDeviceRequest) {
-        await this.processToDevice(
-          machine,
-          request,
-          firebaseUid,
-          deviceId,
-          matrixToFirebaseUid,
-          chatId,
-        );
+    // Drain protocol work to quiescence. Processing a keys query can create
+    // a keys claim, and processing a claim can create to-device messages.
+    // A single outgoingRequests() snapshot would leave those follow-up requests
+    // queued until some unrelated future chat action.
+    await this.drainOutgoingRequestsUnlocked(
+      machine,
+      firebaseUid,
+      deviceId,
+      matrixToFirebaseUid,
+      chatId,
+    );
+
+    return inbox.length;
+  }
+
+  /**
+   * Process chained Matrix requests until the crypto machine has no pending
+   * transport work. The pass limit protects the UI from a malformed or
+   * unexpectedly self-generating request cycle.
+   */
+  private async drainOutgoingRequestsUnlocked(
+    machine: OlmMachine,
+    firebaseUid: string,
+    deviceId: string,
+    matrixToFirebaseUid: Map<string, string>,
+    chatId: string,
+  ): Promise<void> {
+    const maxPasses = 8;
+
+    for (let pass = 0; pass < maxPasses; pass += 1) {
+      await this.publishInitialDeviceKeysUnlocked(firebaseUid);
+      const outgoing = await machine.outgoingRequests();
+      if (!outgoing.length) return;
+
+      let processed = 0;
+      for (const request of outgoing) {
+        if (request instanceof KeysQueryRequest) {
+          await this.processKeysQuery(machine, request, matrixToFirebaseUid);
+          processed += 1;
+        } else if (request instanceof KeysClaimRequest) {
+          await this.processKeysClaim(machine, request, matrixToFirebaseUid, chatId);
+          processed += 1;
+        } else if (request instanceof ToDeviceRequest) {
+          await this.processToDevice(
+            machine,
+            request,
+            firebaseUid,
+            deviceId,
+            matrixToFirebaseUid,
+            chatId,
+          );
+          processed += 1;
+        }
+      }
+
+      if (processed === 0) {
+        throw new Error('The Matrix crypto machine has pending outgoing requests that Dcalls cannot process.');
       }
     }
 
-    return inbox.length;
+    const remaining = await machine.outgoingRequests();
+    if (remaining.length) {
+      throw new Error('The Matrix crypto exchange did not settle after eight processing passes. Pending protocol work was retained for retry.');
+    }
   }
 
   async getDeviceId(firebaseUid: string): Promise<string> {
