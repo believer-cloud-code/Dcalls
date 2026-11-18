@@ -25,6 +25,10 @@ jobs:
           cache: npm
       - name: Install dependencies
         run: npm ci
+      - name: Report dependency vulnerabilities
+        run: |
+          npm audit --json > /tmp/dcalls-npm-audit.json || true
+          node -e "const a=require('/tmp/dcalls-npm-audit.json'); console.log('Dependency vulnerability totals:', JSON.stringify(a.metadata?.vulnerabilities ?? {})); for (const [name, v] of Object.entries(a.vulnerabilities ?? {})) { const via=(v.via ?? []).map(x => typeof x === 'string' ? x : (x.title ?? x.name ?? 'advisory')).join('; '); console.log([v.severity.toUpperCase(), name, v.isDirect ? 'direct' : 'transitive', 'range='+v.range, 'fix='+JSON.stringify(v.fixAvailable), 'via='+via].join(' | ')); }"
       - name: Install Firebase rules test tools
         run: npm install --no-save --package-lock=false @firebase/rules-unit-testing firebase-tools
       - name: Test Firestore security rules in emulator
