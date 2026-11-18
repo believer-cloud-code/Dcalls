@@ -1,5 +1,29 @@
+import {
+  acknowledgeTrustedLinkSecrets,
+  acceptTrustedLinkSession,
+  cancelTrustedLinkSession,
+  completeTrustedLinkJoin,
+  createTrustedLinkSession,
+  inspectTrustedLinkSession,
+  joinTrustedLinkSession,
+  readTrustedLinkMessageForJoiner,
+  sendTrustedLinkSecrets,
+  verifyTrustedLinkCompletion,
+  DeviceAuthorizationError,
+  acknowledgeTrustedDeviceEvents,
+  claimTrustedOneTimeKey,
+  enrollMatrixDevice,
+  getTrustedDeviceKeyStats,
+  listTrustedDeviceEvents,
+  listTrustedDevices,
+  publishTrustedDeviceKeys,
+  queryTrustedDeviceKeys,
+  sendTrustedDeviceEvent,
+  verifyAndConsumeDeviceRequest,
+} from './deviceAuth';
 export interface Env {
   BUCKET: R2Bucket;
+  DEVICE_DB: D1Database;
   PUBLIC_URL?: string;
   FIREBASE_WEB_API_KEY?: string;
   FIREBASE_PROJECT_ID?: string;
@@ -92,6 +116,320 @@ async function requireFirebaseUser(request: Request, env: Env) {
   }
 
   return { uid, token };
+}
+
+async function requireChatParticipants(
+  env: Env,
+  firebaseToken: string,
+  chatId: string,
+  requiredUids: string[],
+): Promise<void> {
+  if (!env.FIREBASE_PROJECT_ID) {
+    throw new DeviceAuthorizationError(503, 'Firebase project configuration is missing.');
+  }
+  const response = await fetch(
+    `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(env.FIREBASE_PROJECT_ID)}/databases/(default)/documents/chats/${encodeURIComponent(chatId)}`,
+    { headers: { Authorization: `Bearer ${firebaseToken}` } },
+  );
+  if (!response.ok) {
+    throw new DeviceAuthorizationError(403, 'The chat does not exist or the caller cannot access it.');
+  }
+  const document = await response.json().catch(() => ({} as any));
+  const participants = document?.fields?.participants?.arrayValue?.values ?? [];
+  const participantUids = new Set(participants.map((entry: any) => entry?.stringValue).filter(Boolean));
+  if (requiredUids.some((uid) => !participantUids.has(uid))) {
+    throw new DeviceAuthorizationError(403, 'Both accounts must belong to the requested chat.');
+  }
+}
+
+async function handleTrustedDeviceRequest(request: Request, env: Env, pathname: string) {
+  const headers = applyCorsHeaders(request, env);
+  if (request.method !== 'POST') {
+    return Response.json({ error: 'Method Not Allowed' }, { status: 405, headers });
+  }
+  if (!env.DEVICE_DB) {
+    return Response.json({ error: 'Trusted device database is not configured.' }, { status: 503, headers });
+  }
+
+  try {
+    const contentLength = Number(request.headers.get('Content-Length') ?? '0');
+    if (contentLength > 1_000_000) {
+      throw new DeviceAuthorizationError(413, 'Trusted device request body is too large.');
+    }
+    const user = await requireFirebaseUser(request, env);
+    const body = await request.json().catch(() => null) as Record<string, any> | null;
+    if (!body || typeof body !== 'object') {
+      throw new DeviceAuthorizationError(400, 'A JSON request body is required.');
+    }
+
+    if (pathname === '/device/enroll') {
+      const result = await enrollMatrixDevice(env.DEVICE_DB, user.uid, {
+        masterKey: body.masterKey,
+        selfSigningKey: body.selfSigningKey,
+        userSigningKey: body.userSigningKey,
+        deviceKeys: body.deviceKeys,
+      });
+      return Response.json({ ok: true, ...result }, { headers });
+    }
+
+    if (pathname === '/device/link/create' ||
+        pathname === '/device/link/inspect' ||
+        pathname === '/device/link/accept' ||
+        pathname === '/device/link/verify' ||
+        pathname === '/device/link/cancel' ||
+        pathname === '/device/link/secrets/send') {
+      const requestData = body.request;
+      const signaturesJson = JSON.stringify(body.signatures ?? {});
+      const actionByPath: Record<string, string> = {
+        '/device/link/create': 'device.link.create',
+        '/device/link/inspect': 'device.link.inspect',
+        '/device/link/accept': 'device.link.accept',
+        '/device/link/verify': 'device.link.verify',
+        '/device/link/cancel': 'device.link.cancel',
+        '/device/link/secrets/send': 'device.link.secrets.send',
+      };
+      if (!requestData || requestData.action !== actionByPath[pathname]) {
+        throw new DeviceAuthorizationError(400, 'A matching signed device-link request is required.');
+      }
+      if (pathname === '/device/link/create') {
+        await createTrustedLinkSession({ DB: env.DEVICE_DB }, user.uid, requestData, signaturesJson);
+        return Response.json({ ok: true }, { headers });
+      }
+      if (pathname === '/device/link/inspect') {
+        const result = await inspectTrustedLinkSession({ DB: env.DEVICE_DB }, user.uid, requestData, signaturesJson);
+        return Response.json({ ok: true, ...result }, { headers });
+      }
+      if (pathname === '/device/link/accept') {
+        await acceptTrustedLinkSession({ DB: env.DEVICE_DB }, user.uid, requestData, signaturesJson);
+        return Response.json({ ok: true }, { headers });
+      }
+      if (pathname === '/device/link/verify') {
+        await verifyTrustedLinkCompletion({ DB: env.DEVICE_DB }, user.uid, requestData, signaturesJson);
+        return Response.json({ ok: true }, { headers });
+      }
+      if (pathname === '/device/link/cancel') {
+        await cancelTrustedLinkSession({ DB: env.DEVICE_DB }, user.uid, requestData, signaturesJson);
+        return Response.json({ ok: true }, { headers });
+      }
+      await sendTrustedLinkSecrets({ DB: env.DEVICE_DB }, user.uid, requestData, signaturesJson);
+      return Response.json({ ok: true }, { headers });
+    }
+
+    if (pathname === '/device/link/join') {
+      await joinTrustedLinkSession({ DB: env.DEVICE_DB }, user.uid, {
+        sessionId: body.sessionId,
+        deviceId: body.deviceId,
+        hpkePublicKey: body.hpkePublicKey,
+        ciphertext: body.ciphertext,
+      });
+      return Response.json({ ok: true }, { headers });
+    }
+
+    if (pathname === '/device/link/complete') {
+      await completeTrustedLinkJoin({ DB: env.DEVICE_DB }, user.uid, {
+        sessionId: body.sessionId,
+        deviceId: body.deviceId,
+        ciphertext: body.ciphertext,
+      });
+      return Response.json({ ok: true }, { headers });
+    }
+
+    if (pathname === '/device/link/secrets/read') {
+      const result = await readTrustedLinkMessageForJoiner({ DB: env.DEVICE_DB }, user.uid, {
+        sessionId: body.sessionId,
+        deviceId: body.deviceId,
+        messageId: 'secrets',
+      });
+      return Response.json({ ok: true, message: result }, { headers });
+    }
+
+    if (pathname === '/device/link/secrets/ack') {
+      await acknowledgeTrustedLinkSecrets({ DB: env.DEVICE_DB }, user.uid, {
+        sessionId: body.sessionId,
+        deviceId: body.deviceId,
+        ciphertext: body.ciphertext,
+      });
+      return Response.json({ ok: true }, { headers });
+    }
+
+    if (pathname === '/device/link/accept/read') {
+      const result = await readTrustedLinkMessageForJoiner({ DB: env.DEVICE_DB }, user.uid, {
+        sessionId: body.sessionId,
+        deviceId: body.deviceId,
+        messageId: 'accept',
+      });
+      return Response.json({ ok: true, message: result }, { headers });
+    }
+
+    if (pathname === '/device/list') {
+      const requestData = body.request;
+      if (!requestData || requestData.action !== 'device.list') {
+        throw new DeviceAuthorizationError(400, 'A signed device.list request is required.');
+      }
+      const devices = await listTrustedDevices(
+        { DB: env.DEVICE_DB },
+        user.uid,
+        requestData,
+        JSON.stringify(body.signatures ?? {}),
+      );
+      return Response.json({ ok: true, devices }, { headers });
+    }
+
+    if (pathname === '/device/inbox/send') {
+      const requestData = body.request;
+      const recipientUid = requestData?.payload?.recipientUid;
+      const chatId = requestData?.payload?.chatId;
+      if (!requestData || requestData.action !== 'device.inbox.send' ||
+          typeof recipientUid !== 'string' || typeof chatId !== 'string') {
+        throw new DeviceAuthorizationError(400, 'A signed device.inbox.send request is required.');
+      }
+      await requireChatParticipants(env, user.token, chatId, [user.uid, recipientUid]);
+      await sendTrustedDeviceEvent(
+        { DB: env.DEVICE_DB },
+        user.uid,
+        requestData,
+        JSON.stringify(body.signatures ?? {}),
+      );
+      return Response.json({ ok: true }, { headers });
+    }
+
+    if (pathname === '/device/inbox/list') {
+      const requestData = body.request;
+      const chatId = requestData?.payload?.chatId;
+      if (!requestData || requestData.action !== 'device.inbox.list' || typeof chatId !== 'string') {
+        throw new DeviceAuthorizationError(400, 'A signed device.inbox.list request is required.');
+      }
+      await requireChatParticipants(env, user.token, chatId, [user.uid]);
+      const events = await listTrustedDeviceEvents(
+        { DB: env.DEVICE_DB },
+        user.uid,
+        requestData,
+        JSON.stringify(body.signatures ?? {}),
+      );
+      return Response.json({ ok: true, events }, { headers });
+    }
+
+    if (pathname === '/device/inbox/ack') {
+      const requestData = body.request;
+      const chatId = requestData?.payload?.chatId;
+      if (!requestData || requestData.action !== 'device.inbox.ack' || typeof chatId !== 'string') {
+        throw new DeviceAuthorizationError(400, 'A signed device.inbox.ack request is required.');
+      }
+      await requireChatParticipants(env, user.token, chatId, [user.uid]);
+      const acknowledged = await acknowledgeTrustedDeviceEvents(
+        { DB: env.DEVICE_DB },
+        user.uid,
+        requestData,
+        JSON.stringify(body.signatures ?? {}),
+      );
+      return Response.json({ ok: true, acknowledged }, { headers });
+    }
+
+    if (pathname === '/device/keys/counts') {
+      const requestData = body.request;
+      if (!requestData || requestData.action !== 'device.keys.counts') {
+        throw new DeviceAuthorizationError(400, 'A signed device.keys.counts request is required.');
+      }
+      const stats = await getTrustedDeviceKeyStats(
+        { DB: env.DEVICE_DB },
+        user.uid,
+        requestData,
+        JSON.stringify(body.signatures ?? {}),
+      );
+      return Response.json({ ok: true, ...stats }, { headers });
+    }
+
+    if (pathname === '/device/keys/query') {
+      const requestData = body.request;
+      const chatId = requestData?.payload?.chatId;
+      const peerUids = requestData?.payload?.peerUids;
+      if (!requestData || requestData.action !== 'device.keys.query' ||
+          typeof chatId !== 'string' || !Array.isArray(peerUids) ||
+          peerUids.some((value: unknown) => typeof value !== 'string')) {
+        throw new DeviceAuthorizationError(400, 'A signed device.keys.query request is required.');
+      }
+      await requireChatParticipants(env, user.token, chatId, [user.uid, ...peerUids]);
+      const keys = await queryTrustedDeviceKeys(
+        { DB: env.DEVICE_DB },
+        user.uid,
+        requestData,
+        JSON.stringify(body.signatures ?? {}),
+      );
+      return Response.json({ ok: true, ...keys }, { headers });
+    }
+
+    if (pathname === '/device/keys/claim') {
+      const requestData = body.request;
+      if (!requestData || requestData.action !== 'device.keys.claim') {
+        throw new DeviceAuthorizationError(400, 'A signed device.keys.claim request is required.');
+      }
+      const recipientUid = requestData.payload?.recipientUid;
+      const chatId = requestData.payload?.chatId;
+      if (typeof recipientUid !== 'string' || typeof chatId !== 'string') {
+        throw new DeviceAuthorizationError(400, 'The recipient and chat are required.');
+      }
+      await requireChatParticipants(env, user.token, chatId, [user.uid, recipientUid]);
+      const result = await claimTrustedOneTimeKey(
+        { DB: env.DEVICE_DB },
+        user.uid,
+        requestData,
+        JSON.stringify(body.signatures ?? {}),
+      );
+      return Response.json({ ok: true, result }, { headers });
+    }
+
+    if (pathname === '/device/keys/publish') {
+      const requestData = body.request;
+      if (!requestData || requestData.action !== 'device.keys.publish') {
+        throw new DeviceAuthorizationError(400, 'A signed device.keys.publish request is required.');
+      }
+      await verifyAndConsumeDeviceRequest(
+        { DB: env.DEVICE_DB },
+        user.uid,
+        requestData,
+        JSON.stringify(body.signatures ?? {}),
+      );
+      const result = await publishTrustedDeviceKeys(
+        { DB: env.DEVICE_DB },
+        user.uid,
+        requestData,
+        JSON.stringify(body.signatures ?? {}),
+      );
+      return Response.json({ ok: true, ...result }, { headers });
+    }
+
+    if (pathname === '/device/revoke') {
+      const requestData = body.request;
+      if (!requestData || requestData.action !== 'device.revoke' ||
+          typeof requestData.payload?.targetDeviceId !== 'string') {
+        throw new DeviceAuthorizationError(400, 'A signed device.revoke request is required.');
+      }
+      await verifyAndConsumeDeviceRequest(
+        { DB: env.DEVICE_DB },
+        user.uid,
+        requestData,
+        JSON.stringify(body.signatures ?? {}),
+      );
+      const now = Date.now();
+      const result = await env.DEVICE_DB.prepare(
+        `UPDATE device_credentials
+            SET status = 'revoked', revoked_at = ?1, updated_at = ?1
+          WHERE uid = ?2 AND device_id = ?3 AND status = 'active'`,
+      ).bind(now, user.uid, requestData.payload.targetDeviceId).run();
+      if ((result.meta?.changes ?? 0) !== 1) {
+        throw new DeviceAuthorizationError(404, 'The target device is not active or does not exist.');
+      }
+      return Response.json({ ok: true, revokedDeviceId: requestData.payload.targetDeviceId }, { headers });
+    }
+
+    return Response.json({ error: 'Unknown trusted device operation.' }, { status: 404, headers });
+  } catch (error: any) {
+    const status = error instanceof DeviceAuthorizationError ? error.status : (error.status || 500);
+    return Response.json(
+      { error: error?.message || 'Trusted device operation failed.' },
+      { status, headers },
+    );
+  }
 }
 
 async function callDeepseek(
@@ -687,6 +1025,10 @@ export default {
         status: 204,
         headers: applyCorsHeaders(request, env),
       });
+    }
+
+    if (url.pathname.startsWith('/device/')) {
+      return handleTrustedDeviceRequest(request, env, url.pathname);
     }
 
     if (url.pathname === '/ai') {

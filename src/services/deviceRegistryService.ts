@@ -267,6 +267,37 @@ export const deviceRegistryService = {
     });
   },
 
+  async getPublishedKeyMaterial(
+    ownerUid: string,
+    deviceId: string,
+  ): Promise<{
+    oneTimeKeys: Record<string, Record<string, unknown>>;
+    fallbackKeys: Record<string, Record<string, unknown>>;
+  }> {
+    if (!ownerUid || !deviceId) throw new Error('A device owner and ID are required.');
+    const keysRef = collection(db, 'users', ownerUid, 'devices', deviceId, 'oneTimeKeys');
+    const [keysSnapshot, deviceSnapshot, usageSnapshot] = await Promise.all([
+      getDocs(query(keysRef, where('claimedBy', '==', null))),
+      getDoc(doc(db, 'users', ownerUid, 'devices', deviceId)),
+      getDocs(collection(db, 'users', ownerUid, 'devices', deviceId, 'fallbackKeyUsage')),
+    ]);
+    const oneTimeKeys: Record<string, Record<string, unknown>> = {};
+    for (const item of keysSnapshot.docs) {
+      const data = item.data();
+      if (typeof data.keyId === 'string' && data.key && typeof data.key === 'object') {
+        oneTimeKeys[data.keyId] = data.key as Record<string, unknown>;
+      }
+    }
+    const fallbackKeys = deviceSnapshot.data()?.fallbackKeys as Record<string, Record<string, unknown>> | undefined;
+    const usedFallbackIds = new Set(usageSnapshot.docs.map((item) => String(item.data().keyId ?? '')));
+    const unusedFallbackKeys = Object.fromEntries(
+      Object.entries(fallbackKeys ?? {}).filter(([keyId, key]) =>
+        key?.fallback === true && !usedFallbackIds.has(keyId),
+      ),
+    );
+    return { oneTimeKeys, fallbackKeys: unusedFallbackKeys };
+  },
+
   async getOneTimeKeyCounts(ownerUid: string, deviceId: string): Promise<Record<string, number>> {
     const keysRef = collection(db, 'users', ownerUid, 'devices', deviceId, 'oneTimeKeys');
     const snapshot = await getDocs(query(keysRef, where('claimedBy', '==', null)));

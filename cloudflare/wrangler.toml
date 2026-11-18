@@ -11,7 +11,14 @@ ALLOWED_ORIGINS = "http://localhost:3000,https://localhost,capacitor://localhost
 binding = "BUCKET"
 bucket_name = "dcalls-uploads"
 
+[[d1_databases]]
+# Must match the Worker Env.DEVICE_DB binding used by the trusted-device routes.
+binding = "DEVICE_DB"
+database_name = "dcalls-device-auth"
+database_id = "fc8965b7-01b7-4503-8d55-27e5aceca425"
+migrations_dir = "migrations"
+
 # Secrets are configured with:
-# wrangler secret put FIREBASE_WEB_API_KEY
-# wrangler secret put DEEPSEEK_API_KEY
-# wrangler secret put OPENROUTER_API_KEY
+#   npx wrangler secret put FIREBASE_WEB_API_KEY
+#   npx wrangler secret put DEEPSEEK_API_KEY
+#   npx wrangler secret put OPENROUTER_API_KEY

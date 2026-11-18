@@ -15,6 +15,8 @@ import {
   setDoc,
 } from 'firebase/firestore';
 import { auth, db } from '../firebase';
+import { callWorkerJson } from './cloudflareApi';
+import { matrixCryptoService } from './matrixCryptoService';
 
 const SESSION_LIFETIME_MS = 5 * 60 * 1000;
 const PROTOCOL = 'dcalls-device-link';
@@ -38,6 +40,7 @@ interface SourceSession {
   acceptedDeviceId?: string;
   finalAckVerified?: boolean;
   secretsCiphertext?: string;
+  secretsAckVerified?: boolean;
 }
 
 interface ScannerSession {
@@ -119,6 +122,14 @@ class QrDeviceLinkService {
   private sourceSessions = new Map<string, SourceSession>();
   private scannerSessions = new Map<string, ScannerSession>();
 
+  private get trustedMode(): boolean {
+    return import.meta.env.VITE_TRUSTED_DEVICE_AUTH_ENABLED === 'true';
+  }
+
+  private sourceAction(uid: string, action: string, payload: Record<string, unknown>, path: string) {
+    return matrixCryptoService.callTrustedDeviceWorker(uid, action, payload, path);
+  }
+
   async createSession(uid: string, deviceId: string): Promise<{
     sessionId: string;
     qrPayload: string;
@@ -139,14 +150,22 @@ class QrDeviceLinkService {
 
     this.sourceSessions.set(sessionId, { ownerUid: uid, deviceId, expiresAt, recipient });
     try {
-      await setDoc(sessionRef(uid, sessionId), {
-        ownerUid: uid,
-        sourceDeviceId: deviceId,
-        hpkePublicKey: qrPayload.publicKey,
-        state: 'waiting',
-        expiresAt: Timestamp.fromMillis(expiresAt),
-        createdAt: serverTimestamp(),
-      });
+      if (this.trustedMode) {
+        await this.sourceAction(uid, 'device.link.create', {
+          sessionId,
+          hpkePublicKey: qrPayload.publicKey,
+          expiresAt,
+        }, '/device/link/create');
+      } else {
+        await setDoc(sessionRef(uid, sessionId), {
+          ownerUid: uid,
+          sourceDeviceId: deviceId,
+          hpkePublicKey: qrPayload.publicKey,
+          state: 'waiting',
+          expiresAt: Timestamp.fromMillis(expiresAt),
+          createdAt: serverTimestamp(),
+        });
+      }
     } catch (error) {
       this.sourceSessions.delete(sessionId);
       throw error;
@@ -168,6 +187,18 @@ class QrDeviceLinkService {
       ) {
         throw new Error('This pairing session is already active on another device identity.');
       }
+      if (this.trustedMode) {
+        await callWorkerJson('/device/link/join', {
+          method: 'POST',
+          body: JSON.stringify({
+            sessionId: payload.sessionId,
+            deviceId,
+            hpkePublicKey: payload.publicKey,
+            ciphertext: existingScanner.joinCiphertext,
+          }),
+        });
+        return payload.sessionId;
+      }
       const [current, existingJoin] = await Promise.all([
         getDoc(sessionRef(uid, payload.sessionId)),
         getDoc(messageRef(uid, payload.sessionId, 'join')),
@@ -184,18 +215,16 @@ class QrDeviceLinkService {
       this.scannerSessions.delete(payload.sessionId);
       throw new Error('The previous join attempt was not confirmed. Scan a fresh pairing QR code.');
     }
-    const ref = sessionRef(uid, payload.sessionId);
-    const snapshot = await getDoc(ref);
-    if (!snapshot.exists()) throw new Error('The device-link session does not exist for this account.');
-    const data = snapshot.data();
-    const expiresAt = (data.expiresAt as Timestamp | undefined)?.toMillis() ?? 0;
-    assertNotExpired(expiresAt);
-    if (
-      data.ownerUid !== uid ||
-      data.state !== 'waiting' ||
-      data.hpkePublicKey !== payload.publicKey
-    ) {
-      throw new Error('This device-link session is no longer available.');
+
+    if (!this.trustedMode) {
+      const snapshot = await getDoc(sessionRef(uid, payload.sessionId));
+      if (!snapshot.exists()) throw new Error('The device-link session does not exist for this account.');
+      const data = snapshot.data();
+      const expiresAt = (data.expiresAt as Timestamp | undefined)?.toMillis() ?? 0;
+      assertNotExpired(expiresAt);
+      if (data.ownerUid !== uid || data.state !== 'waiting' || data.hpkePublicKey !== payload.publicKey) {
+        throw new Error('This device-link session is no longer available.');
+      }
     }
 
     const sender = new HpkeSenderChannel();
@@ -212,41 +241,48 @@ class QrDeviceLinkService {
       aadFor(payload.sessionId),
     );
 
-    const joinRef = messageRef(uid, payload.sessionId, 'join');
-    // Keep the HPKE sender state before the network write. If Firestore commits
-    // but its response is lost, the caller can safely retry in this runtime.
     this.scannerSessions.set(payload.sessionId, {
       ownerUid: uid,
       deviceId,
-      expiresAt,
+      expiresAt: Date.now() + SESSION_LIFETIME_MS,
       sender: initial.channel,
       joinCiphertext: initial.message,
     });
-    try {
-      await runTransaction(db, async (transaction) => {
-        const current = await transaction.get(ref);
-        const existingJoin = await transaction.get(joinRef);
-        const currentExpiry = (current.data()?.expiresAt as Timestamp | undefined)?.toMillis() ?? 0;
-        if (
-          !current.exists() ||
-          current.data()?.state !== 'waiting' ||
-          currentExpiry <= Date.now() ||
-          existingJoin.exists()
-        ) {
-          throw new Error('This pairing session was already used or has expired.');
-        }
-        transaction.set(joinRef, {
-          senderDeviceId: deviceId,
+
+    if (this.trustedMode) {
+      await callWorkerJson('/device/link/join', {
+        method: 'POST',
+        body: JSON.stringify({
+          sessionId: payload.sessionId,
+          deviceId,
+          hpkePublicKey: payload.publicKey,
           ciphertext: initial.message,
-          createdAt: serverTimestamp(),
-        });
-        transaction.update(ref, { state: 'joined', joinedDeviceId: deviceId, updatedAt: serverTimestamp() });
+        }),
       });
-    } catch (error) {
-      // Retain the HPKE state so a later invocation can inspect whether the
-      // transaction committed despite an ambiguous network error.
-      throw error;
+      return payload.sessionId;
     }
+
+    const ref = sessionRef(uid, payload.sessionId);
+    const joinRef = messageRef(uid, payload.sessionId, 'join');
+    await runTransaction(db, async (transaction) => {
+      const current = await transaction.get(ref);
+      const existingJoin = await transaction.get(joinRef);
+      const currentExpiry = (current.data()?.expiresAt as Timestamp | undefined)?.toMillis() ?? 0;
+      if (
+        !current.exists() ||
+        current.data()?.state !== 'waiting' ||
+        currentExpiry <= Date.now() ||
+        existingJoin.exists()
+      ) {
+        throw new Error('This pairing session was already used or has expired.');
+      }
+      transaction.set(joinRef, {
+        senderDeviceId: deviceId,
+        ciphertext: initial.message,
+        createdAt: serverTimestamp(),
+      });
+      transaction.update(ref, { state: 'joined', joinedDeviceId: deviceId, updatedAt: serverTimestamp() });
+    });
     return payload.sessionId;
   }
 
@@ -259,20 +295,40 @@ class QrDeviceLinkService {
       return { deviceId: source.joinRequest.deviceId, deviceName: source.joinRequest.deviceName };
     }
 
-    const parent = await getDoc(sessionRef(uid, sessionId));
-    const join = await getDoc(messageRef(uid, sessionId, 'join'));
-    if (!parent.exists() || parent.data().state !== 'joined' || !join.exists()) {
-      throw new Error('No new device has joined this pairing session yet.');
+    let state: string;
+    let joinedDeviceId: string;
+    let senderDeviceId: string;
+    let joinCiphertext: string;
+    if (this.trustedMode) {
+      const result = await this.sourceAction(uid, 'device.link.inspect', { sessionId }, '/device/link/inspect') as {
+        session?: Record<string, unknown>;
+        messages?: Record<string, Record<string, unknown>>;
+      };
+      const session = result.session;
+      const join = result.messages?.join;
+      state = String(session?.state ?? '');
+      joinedDeviceId = String(session?.joined_device_id ?? '');
+      senderDeviceId = String(join?.sender_device_id ?? '');
+      joinCiphertext = String(join?.ciphertext ?? '');
+      if (!session || !join || state !== 'joined') {
+        throw new Error('No new device has joined this pairing session yet.');
+      }
+    } else {
+      const parent = await getDoc(sessionRef(uid, sessionId));
+      const join = await getDoc(messageRef(uid, sessionId, 'join'));
+      if (!parent.exists() || parent.data().state !== 'joined' || !join.exists()) {
+        throw new Error('No new device has joined this pairing session yet.');
+      }
+      senderDeviceId = String(join.data().senderDeviceId ?? '');
+      joinedDeviceId = String(parent.data().joinedDeviceId ?? '');
+      joinCiphertext = String(join.data().ciphertext ?? '');
     }
-    const senderDeviceId = String(join.data().senderDeviceId ?? '');
-    if (!senderDeviceId || senderDeviceId === source.deviceId || parent.data().joinedDeviceId !== senderDeviceId) {
+
+    if (!senderDeviceId || senderDeviceId === source.deviceId || joinedDeviceId !== senderDeviceId) {
       throw new Error('The pairing request does not identify a valid new device.');
     }
 
-    const opened = source.recipient.establishChannel(
-      String(join.data().ciphertext ?? ''),
-      aadFor(sessionId),
-    );
+    const opened = source.recipient.establishChannel(joinCiphertext, aadFor(sessionId));
     const request = JSON.parse(opened.message) as Record<string, unknown>;
     if (
       request.protocol !== PROTOCOL ||
@@ -297,15 +353,17 @@ class QrDeviceLinkService {
     }
     assertNotExpired(source.expiresAt);
 
-    const parent = await getDoc(sessionRef(uid, sessionId));
     const expectedDeviceId = source.acceptedDeviceId ?? source.joinRequest?.deviceId;
-    if (
-      !parent.exists() ||
-      !['joined', 'accepted', 'verified'].includes(String(parent.data().state)) ||
-      !expectedDeviceId ||
-      parent.data().joinedDeviceId !== expectedDeviceId
-    ) {
-      throw new Error('The pairing request changed before approval.');
+    if (!expectedDeviceId) throw new Error('The pairing request has no joining device identity.');
+    if (!this.trustedMode) {
+      const parent = await getDoc(sessionRef(uid, sessionId));
+      if (
+        !parent.exists() ||
+        !['joined', 'accepted', 'verified'].includes(String(parent.data().state)) ||
+        parent.data().joinedDeviceId !== expectedDeviceId
+      ) {
+        throw new Error('The pairing request changed before approval.');
+      }
     }
 
     if (!source.channel || !source.acceptCiphertext) {
@@ -319,32 +377,40 @@ class QrDeviceLinkService {
       source.acceptedDeviceId = source.joinRequest.deviceId;
     }
     const acceptCiphertext = source.acceptCiphertext;
-    await runTransaction(db, async (transaction) => {
-      const ref = sessionRef(uid, sessionId);
-      const current = await transaction.get(ref);
-      const acceptRef = messageRef(uid, sessionId, 'accept');
-      const existingAccept = await transaction.get(acceptRef);
-      if (!current.exists() || current.data().joinedDeviceId !== source.acceptedDeviceId) {
-        throw new Error('The pairing session changed before approval.');
-      }
-      if (existingAccept.exists()) {
-        if (
-          existingAccept.data().ciphertext !== acceptCiphertext ||
-          !['accepted', 'verified'].includes(String(current.data().state))
-        ) {
-          throw new Error('A different approval already exists for this pairing session.');
-        }
-        return;
-      }
-      if (current.data().state !== 'joined') {
-        throw new Error('The pairing session is no longer awaiting approval.');
-      }
-      transaction.set(acceptRef, {
+
+    if (this.trustedMode) {
+      await this.sourceAction(uid, 'device.link.accept', {
+        sessionId,
         ciphertext: acceptCiphertext,
-        createdAt: serverTimestamp(),
+      }, '/device/link/accept');
+    } else {
+      await runTransaction(db, async (transaction) => {
+        const ref = sessionRef(uid, sessionId);
+        const current = await transaction.get(ref);
+        const acceptRef = messageRef(uid, sessionId, 'accept');
+        const existingAccept = await transaction.get(acceptRef);
+        if (!current.exists() || current.data().joinedDeviceId !== source.acceptedDeviceId) {
+          throw new Error('The pairing session changed before approval.');
+        }
+        if (existingAccept.exists()) {
+          if (
+            existingAccept.data().ciphertext !== acceptCiphertext ||
+            !['accepted', 'verified'].includes(String(current.data().state))
+          ) {
+            throw new Error('A different approval already exists for this pairing session.');
+          }
+          return;
+        }
+        if (current.data().state !== 'joined') {
+          throw new Error('The pairing session is no longer awaiting approval.');
+        }
+        transaction.set(acceptRef, {
+          ciphertext: acceptCiphertext,
+          createdAt: serverTimestamp(),
+        });
+        transaction.update(ref, { state: 'accepted', updatedAt: serverTimestamp() });
       });
-      transaction.update(ref, { state: 'accepted', updatedAt: serverTimestamp() });
-    });
+    }
     source.joinRequest = undefined;
     return checkCode(source.channel);
   }
@@ -355,17 +421,25 @@ class QrDeviceLinkService {
     if (!scanner || scanner.ownerUid !== uid) throw new Error('This device has no pending QR pairing request.');
     assertNotExpired(scanner.expiresAt);
 
-    const parent = await getDoc(sessionRef(uid, sessionId));
-    const accepted = await getDoc(messageRef(uid, sessionId, 'accept'));
-    if (!parent.exists() || !['accepted', 'verified'].includes(String(parent.data().state)) || !accepted.exists()) {
-      throw new Error('The existing device has not approved this pairing yet.');
+    let acceptCiphertext: string;
+    if (this.trustedMode) {
+      const response = await callWorkerJson('/device/link/accept/read', {
+        method: 'POST',
+        body: JSON.stringify({ sessionId, deviceId: scanner.deviceId }),
+      }) as { message?: { ciphertext?: string } | null };
+      acceptCiphertext = String(response.message?.ciphertext ?? '');
+      if (!acceptCiphertext) throw new Error('The existing device has not approved this pairing yet.');
+    } else {
+      const parent = await getDoc(sessionRef(uid, sessionId));
+      const accepted = await getDoc(messageRef(uid, sessionId, 'accept'));
+      if (!parent.exists() || !['accepted', 'verified'].includes(String(parent.data().state)) || !accepted.exists()) {
+        throw new Error('The existing device has not approved this pairing yet.');
+      }
+      acceptCiphertext = String(accepted.data().ciphertext ?? '');
     }
 
     if (!scanner.channel || !scanner.finalCiphertext) {
-      const result = scanner.sender.establishBidirectionalChannel(
-        String(accepted.data().ciphertext ?? ''),
-        aadFor(sessionId),
-      );
+      const result = scanner.sender.establishBidirectionalChannel(acceptCiphertext, aadFor(sessionId));
       const acceptedMessage = JSON.parse(result.initialResponse) as Record<string, unknown>;
       if (
         acceptedMessage.protocol !== PROTOCOL ||
@@ -380,24 +454,36 @@ class QrDeviceLinkService {
         aadFor(sessionId),
       );
     }
-    const finalRef = messageRef(uid, sessionId, 'final');
-    await runTransaction(db, async (transaction) => {
-      const current = await transaction.get(sessionRef(uid, sessionId));
-      const existing = await transaction.get(finalRef);
-      if (!current.exists() || !['accepted', 'verified'].includes(String(current.data().state))) {
-        throw new Error('The pairing session is no longer awaiting final confirmation.');
-      }
-      if (existing.exists()) {
-        if (existing.data().ciphertext !== scanner.finalCiphertext) {
-          throw new Error('A different final acknowledgement already exists.');
-        }
-        return;
-      }
-      transaction.set(finalRef, {
-        ciphertext: scanner.finalCiphertext,
-        createdAt: serverTimestamp(),
+
+    if (this.trustedMode) {
+      await callWorkerJson('/device/link/complete', {
+        method: 'POST',
+        body: JSON.stringify({
+          sessionId,
+          deviceId: scanner.deviceId,
+          ciphertext: scanner.finalCiphertext,
+        }),
       });
-    });
+    } else {
+      const finalRef = messageRef(uid, sessionId, 'final');
+      await runTransaction(db, async (transaction) => {
+        const current = await transaction.get(sessionRef(uid, sessionId));
+        const existing = await transaction.get(finalRef);
+        if (!current.exists() || !['accepted', 'verified'].includes(String(current.data().state))) {
+          throw new Error('The pairing session is no longer awaiting final confirmation.');
+        }
+        if (existing.exists()) {
+          if (existing.data().ciphertext !== scanner.finalCiphertext) {
+            throw new Error('A different final acknowledgement already exists.');
+          }
+          return;
+        }
+        transaction.set(finalRef, {
+          ciphertext: scanner.finalCiphertext,
+          createdAt: serverTimestamp(),
+        });
+      });
+    }
     return checkCode(scanner.channel);
   }
 
@@ -409,9 +495,18 @@ class QrDeviceLinkService {
     }
     assertNotExpired(source.expiresAt);
     if (!source.finalAckVerified) {
-      const final = await getDoc(messageRef(uid, sessionId, 'final'));
-      if (!final.exists()) throw new Error('The new device has not completed the handshake.');
-      const plaintext = source.channel.open(String(final.data().ciphertext ?? ''), aadFor(sessionId));
+      let finalCiphertext: string;
+      if (this.trustedMode) {
+        const result = await this.sourceAction(uid, 'device.link.inspect', { sessionId }, '/device/link/inspect') as {
+          messages?: Record<string, Record<string, unknown>>;
+        };
+        finalCiphertext = String(result.messages?.final?.ciphertext ?? '');
+      } else {
+        const final = await getDoc(messageRef(uid, sessionId, 'final'));
+        finalCiphertext = final.exists() ? String(final.data().ciphertext ?? '') : '';
+      }
+      if (!finalCiphertext) throw new Error('The new device has not completed the handshake.');
+      const plaintext = source.channel.open(finalCiphertext, aadFor(sessionId));
       const message = JSON.parse(plaintext) as Record<string, unknown>;
       if (
         message.protocol !== PROTOCOL ||
@@ -420,39 +515,46 @@ class QrDeviceLinkService {
       ) {
         throw new Error('The final pairing acknowledgement is invalid.');
       }
-      // Cache successful HPKE opening before the Firestore write. If the
-      // write outcome is ambiguous, a retry must not open the same message twice.
       source.finalAckVerified = true;
     }
-    await runTransaction(db, async (transaction) => {
-      const ref = sessionRef(uid, sessionId);
-      const current = await transaction.get(ref);
-      if (!current.exists() || !['accepted', 'verified'].includes(String(current.data().state))) {
-        throw new Error('The pairing session is no longer active.');
-      }
-      if (current.data().state === 'accepted') {
-        transaction.update(ref, { state: 'verified', verifiedAt: serverTimestamp(), updatedAt: serverTimestamp() });
-      }
-    });
+
+    if (this.trustedMode) {
+      await this.sourceAction(uid, 'device.link.verify', { sessionId }, '/device/link/verify');
+    } else {
+      await runTransaction(db, async (transaction) => {
+        const ref = sessionRef(uid, sessionId);
+        const current = await transaction.get(ref);
+        if (!current.exists() || !['accepted', 'verified'].includes(String(current.data().state))) {
+          throw new Error('The pairing session is no longer active.');
+        }
+        if (current.data().state === 'accepted') {
+          transaction.update(ref, { state: 'verified', verifiedAt: serverTimestamp(), updatedAt: serverTimestamp() });
+        }
+      });
+    }
     return checkCode(source.channel);
   }
 
   async cancelSession(uid: string, sessionId: string): Promise<void> {
     assertSignedIn(uid);
-    await runTransaction(db, async (transaction) => {
-      const ref = sessionRef(uid, sessionId);
-      const current = await transaction.get(ref);
-      if (!current.exists()) return;
-      const state = current.data().state;
-      if (state === 'cancelled') return;
-      if (state === 'verified') {
-        const secrets = await transaction.get(messageRef(uid, sessionId, 'secrets'));
-        if (secrets.exists()) {
-          throw new Error('Account signing keys have already been sent; this pairing cannot be cancelled safely.');
+    if (this.trustedMode) {
+      await this.sourceAction(uid, 'device.link.cancel', { sessionId }, '/device/link/cancel');
+    } else {
+      await runTransaction(db, async (transaction) => {
+        const ref = sessionRef(uid, sessionId);
+        const current = await transaction.get(ref);
+        if (!current.exists()) return;
+        const state = current.data().state;
+        if (state === 'cancelled') return;
+        if (state === 'verified') {
+          const secrets = await transaction.get(messageRef(uid, sessionId, 'secrets'));
+          if (secrets.exists()) {
+            throw new Error('Account signing keys have already been sent; this pairing cannot be cancelled safely.');
+          }
         }
-      }
-      transaction.update(ref, { state: 'cancelled', updatedAt: serverTimestamp() });
-    });
+        transaction.update(ref, { state: 'cancelled', updatedAt: serverTimestamp() });
+      });
+    }
     this.sourceSessions.delete(sessionId);
     this.scannerSessions.delete(sessionId);
   }
@@ -465,15 +567,22 @@ class QrDeviceLinkService {
       throw new Error('The verified source-device channel is unavailable.');
     }
     assertNotExpired(source.expiresAt);
+    const ciphertext = source.secretsCiphertext ?? source.channel.seal(serializedBundle, aadFor(sessionId));
+    source.secretsCiphertext = ciphertext;
+
+    if (this.trustedMode) {
+      await this.sourceAction(uid, 'device.link.secrets.send', {
+        sessionId,
+        ciphertext,
+      }, '/device/link/secrets/send');
+      return;
+    }
+
     const parent = await getDoc(sessionRef(uid, sessionId));
     if (!parent.exists() || parent.data().state !== 'verified') {
       throw new Error('Verify the matching device code before transferring account keys.');
     }
     const ref = messageRef(uid, sessionId, 'secrets');
-    // HPKE channels are stateful. Reuse the exact ciphertext after an
-    // ambiguous Firestore failure instead of sealing the same transfer again.
-    const ciphertext = source.secretsCiphertext ?? source.channel.seal(serializedBundle, aadFor(sessionId));
-    source.secretsCiphertext = ciphertext;
     await runTransaction(db, async (transaction) => {
       const existing = await transaction.get(ref);
       const current = await transaction.get(sessionRef(uid, sessionId));
@@ -496,14 +605,25 @@ class QrDeviceLinkService {
       throw new Error('The verified new-device channel is unavailable.');
     }
     assertNotExpired(scanner.expiresAt);
-    const parent = await getDoc(sessionRef(uid, sessionId));
-    if (!parent.exists() || parent.data().state !== 'verified') {
-      throw new Error('The existing device has not verified this pairing session.');
-    }
     if (scanner.receivedSecretsBundle !== undefined) return scanner.receivedSecretsBundle;
-    const snapshot = await getDoc(messageRef(uid, sessionId, 'secrets'));
-    if (!snapshot.exists()) throw new Error('The existing device has not sent the account signing keys yet.');
-    const bundle = scanner.channel.open(String(snapshot.data().ciphertext ?? ''), aadFor(sessionId));
+
+    let ciphertext: string;
+    if (this.trustedMode) {
+      const response = await callWorkerJson('/device/link/secrets/read', {
+        method: 'POST',
+        body: JSON.stringify({ sessionId, deviceId: scanner.deviceId }),
+      }) as { message?: { ciphertext?: string } | null };
+      ciphertext = String(response.message?.ciphertext ?? '');
+    } else {
+      const parent = await getDoc(sessionRef(uid, sessionId));
+      if (!parent.exists() || parent.data().state !== 'verified') {
+        throw new Error('The existing device has not verified this pairing session.');
+      }
+      const snapshot = await getDoc(messageRef(uid, sessionId, 'secrets'));
+      ciphertext = snapshot.exists() ? String(snapshot.data().ciphertext ?? '') : '';
+    }
+    if (!ciphertext) throw new Error('The existing device has not sent the account signing keys yet.');
+    const bundle = scanner.channel.open(ciphertext, aadFor(sessionId));
     scanner.receivedSecretsBundle = bundle;
     return bundle;
   }
@@ -514,14 +634,22 @@ class QrDeviceLinkService {
     if (!scanner?.channel || scanner.ownerUid !== uid) {
       throw new Error('The new-device secure channel is unavailable.');
     }
-    const ref = messageRef(uid, sessionId, 'secretsAck');
-    // Keep the acknowledgement ciphertext stable across retries because
-    // sealing advances the stateful HPKE channel.
+    assertNotExpired(scanner.expiresAt);
     const ciphertext = scanner.secretsAckCiphertext ?? scanner.channel.seal(
       JSON.stringify({ protocol: PROTOCOL, version: VERSION, type: 'secrets-received' }),
       aadFor(sessionId),
     );
     scanner.secretsAckCiphertext = ciphertext;
+
+    if (this.trustedMode) {
+      await callWorkerJson('/device/link/secrets/ack', {
+        method: 'POST',
+        body: JSON.stringify({ sessionId, deviceId: scanner.deviceId, ciphertext }),
+      });
+      return;
+    }
+
+    const ref = messageRef(uid, sessionId, 'secretsAck');
     await runTransaction(db, async (transaction) => {
       const existing = await transaction.get(ref);
       const current = await transaction.get(sessionRef(uid, sessionId));
@@ -543,13 +671,24 @@ class QrDeviceLinkService {
     if (!source?.channel || source.ownerUid !== uid) {
       throw new Error('The source-device secure channel is unavailable.');
     }
-    const snapshot = await getDoc(messageRef(uid, sessionId, 'secretsAck'));
-    if (!snapshot.exists()) return false;
-    const plaintext = source.channel.open(String(snapshot.data().ciphertext ?? ''), aadFor(sessionId));
+    if (source.secretsAckVerified) return true;
+    let ciphertext: string;
+    if (this.trustedMode) {
+      const result = await this.sourceAction(uid, 'device.link.inspect', { sessionId }, '/device/link/inspect') as {
+        messages?: Record<string, Record<string, unknown>>;
+      };
+      ciphertext = String(result.messages?.secretsAck?.ciphertext ?? '');
+    } else {
+      const snapshot = await getDoc(messageRef(uid, sessionId, 'secretsAck'));
+      ciphertext = snapshot.exists() ? String(snapshot.data().ciphertext ?? '') : '';
+    }
+    if (!ciphertext) return false;
+    const plaintext = source.channel.open(ciphertext, aadFor(sessionId));
     const ack = JSON.parse(plaintext) as Record<string, unknown>;
     if (ack.protocol !== PROTOCOL || ack.version !== VERSION || ack.type !== 'secrets-received') {
       throw new Error('The new device returned an invalid key-transfer acknowledgement.');
     }
+    source.secretsAckVerified = true;
     return true;
   }
 

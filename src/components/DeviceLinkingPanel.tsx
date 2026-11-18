@@ -3,7 +3,6 @@ import { AlertCircle, Camera, CheckCircle2, Copy, Link2, Loader2, RefreshCw, Shi
 import { QRCodeSVG } from 'qrcode.react';
 import { matrixCryptoService } from '../services/matrixCryptoService';
 import { qrDeviceLinkService } from '../services/qrDeviceLinkService';
-import { deviceRegistryService } from '../services/deviceRegistryService';
 
 interface DeviceLinkingPanelProps {
   userId: string;
@@ -110,21 +109,21 @@ export const DeviceLinkingPanel: React.FC<DeviceLinkingPanelProps> = ({ userId }
   }, [cameraActive]);
 
   const refreshRegisteredDevices = async () => {
-    const devices = await deviceRegistryService.listAllDevices(userId);
+    const devices = await matrixCryptoService.listRegisteredDevices(userId);
     setRegisteredDevices(devices);
   };
 
   useEffect(() => {
     if (!deviceId) return;
     let active = true;
-    deviceRegistryService.listAllDevices(userId)
+    matrixCryptoService.listRegisteredDevices(userId)
       .then((devices) => { if (active) setRegisteredDevices(devices); })
       .catch((reason) => { if (active) setError(reason instanceof Error ? reason.message : String(reason)); });
     return () => { active = false; };
   }, [userId, deviceId]);
 
   const revokeDevice = (targetDeviceId: string) => run(async () => {
-    await deviceRegistryService.revokeDevice(userId, targetDeviceId);
+    await matrixCryptoService.revokeDevice(userId, targetDeviceId);
     setPendingRevocationId(null);
     await refreshRegisteredDevices();
   });
