@@ -28,7 +28,7 @@ jobs:
       - name: Report dependency vulnerabilities
         run: |
           npm audit --json > /tmp/dcalls-npm-audit.json || true
-          node -e "const a=require('/tmp/dcalls-npm-audit.json'); console.log('Dependency vulnerability totals:', JSON.stringify(a.metadata?.vulnerabilities ?? {})); for (const [name, v] of Object.entries(a.vulnerabilities ?? {})) { const via=(v.via ?? []).map(x => typeof x === 'string' ? x : (x.title ?? x.name ?? 'advisory')).join('; '); console.log([v.severity.toUpperCase(), name, v.isDirect ? 'direct' : 'transitive', 'range='+v.range, 'fix='+JSON.stringify(v.fixAvailable), 'via='+via].join(' | ')); }"
+          node -e "const fs=require('node:fs'); let a={}; try { a=JSON.parse(fs.readFileSync('/tmp/dcalls-npm-audit.json','utf8')); } catch { console.log('npm audit report unavailable'); process.exit(0); } console.log('Dependency vulnerability totals:', JSON.stringify(a.metadata?.vulnerabilities ?? {})); for (const [name, v] of Object.entries(a.vulnerabilities ?? {})) { const via=(v.via ?? []).map(x => typeof x === 'string' ? x : (x.title ?? x.name ?? 'advisory')).join('; '); console.log([v.severity.toUpperCase(), name, v.isDirect ? 'direct' : 'transitive', 'range='+v.range, 'fix='+JSON.stringify(v.fixAvailable), 'via='+via].join(' | ')); }"
       - name: Install Firebase rules test tools
         run: npm install --no-save --package-lock=false @firebase/rules-unit-testing firebase-tools
       - name: Test Firestore security rules in emulator
