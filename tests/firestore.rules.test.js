@@ -252,6 +252,18 @@ test('revoking a joined device blocks QR pairing progression and key transfer', 
       deviceId: 'new-device',
       deviceKeys: { device_id: 'new-device' },
     });
+    await setDoc(doc(context.firestore(), 'users/alice/devices/other-device'), {
+      deviceId: 'other-device',
+      deviceKeys: { device_id: 'other-device' },
+    });
+    await setDoc(doc(context.firestore(), 'users/alice/deviceLinkSessions/source-revoked-session-000000'), {
+      ownerUid: 'alice',
+      sourceDeviceId: 'alice-device',
+      joinedDeviceId: 'other-device',
+      hpkePublicKey: 'A'.repeat(48),
+      state: 'verified',
+      expiresAt: Timestamp.fromMillis(Date.now() + 4 * 60 * 1000),
+    });
     await setDoc(doc(context.firestore(), 'users/alice/deviceLinkSessions/joined-session-000000000000'), {
       ownerUid: 'alice',
       sourceDeviceId: 'alice-device',
@@ -302,6 +314,16 @@ test('revoking a joined device blocks QR pairing progression and key transfer', 
   }));
 
   await assertFails(setDoc(doc(db, 'users/alice/deviceLinkSessions/verified-session-0000000000/messages/secrets'), {
+    senderDeviceId: 'alice-device',
+    ciphertext: 'encrypted-secrets',
+    createdAt: serverTimestamp(),
+  }));
+
+  await assertSucceeds(updateDoc(doc(db, 'users/alice/devices/alice-device'), {
+    revokedAt: serverTimestamp(),
+    revokedBy: 'alice',
+  }));
+  await assertFails(setDoc(doc(db, 'users/alice/deviceLinkSessions/source-revoked-session-000000/messages/secrets'), {
     senderDeviceId: 'alice-device',
     ciphertext: 'encrypted-secrets',
     createdAt: serverTimestamp(),
