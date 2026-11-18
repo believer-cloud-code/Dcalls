@@ -72,6 +72,7 @@ async function stableMatrixUserId(firebaseUid: string): Promise<string> {
  */
 class MatrixCryptoService {
   private inboxProcessing = new Map<string, Promise<number>>();
+  private roomDeviceSnapshots = new Map<string, string>();
   private accountOperations = new Map<string, Promise<void>>();
 
   private async withAccountLock<T>(firebaseUid: string, operation: () => Promise<T>): Promise<T> {
@@ -511,6 +512,41 @@ class MatrixCryptoService {
   }
 
 
+  private async getActiveRoomDeviceSnapshot(firebaseUids: string[]): Promise<string> {
+    const devices: Array<{ userId: string; deviceId: string }> = [];
+    for (const userId of [...new Set(firebaseUids)].sort()) {
+      const registered = await deviceRegistryService.listPublicDevices(userId);
+      for (const device of registered) {
+        devices.push({ userId, deviceId: device.id });
+      }
+    }
+    devices.sort((left, right) =>
+      left.userId.localeCompare(right.userId) || left.deviceId.localeCompare(right.deviceId)
+    );
+    return JSON.stringify(devices);
+  }
+
+  private readRoomDeviceSnapshot(key: string): string | null {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const stored = localStorage.getItem(key);
+        if (stored !== null) return stored;
+      }
+    } catch {
+      // Fall back to this service instance when browser storage is unavailable.
+    }
+    return this.roomDeviceSnapshots.get(key) ?? null;
+  }
+
+  private saveRoomDeviceSnapshot(key: string, snapshot: string): void {
+    this.roomDeviceSnapshots.set(key, snapshot);
+    try {
+      if (typeof localStorage !== 'undefined') localStorage.setItem(key, snapshot);
+    } catch {
+      // The in-memory snapshot still prevents repeated rotations in this session.
+    }
+  }
+
   private async stableRoomId(chatId: string): Promise<RoomId> {
     const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(chatId));
     const suffix = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('').slice(0, 32);
@@ -573,6 +609,17 @@ class MatrixCryptoService {
     const roomUsers = await Promise.all(allFirebaseUids.map(async (uid) =>
       new UserId(await stableMatrixUserId(uid))
     ));
+
+    // A device-set change can leave a revoked installation holding the
+    // previous Megolm key. Rotate before sharing again so future messages use
+    // a fresh session distributed only to currently active devices.
+    const deviceSnapshotKey = `dcalls_matrix_room_devices_v1:${firebaseUid}:${chatId}`;
+    const activeDeviceSnapshot = await this.getActiveRoomDeviceSnapshot(allFirebaseUids);
+    const previousDeviceSnapshot = this.readRoomDeviceSnapshot(deviceSnapshotKey);
+    if (previousDeviceSnapshot !== activeDeviceSnapshot) {
+      await machine.invalidateGroupSession(roomId);
+    }
+
     const roomKeyRequests = await machine.shareRoomKey(
       roomId,
       roomUsers,
@@ -602,6 +649,9 @@ class MatrixCryptoService {
       chatId,
     );
 
+    // Persist only after the new key-share requests have been fully accepted.
+    // If transport fails, the next send retries the invalidation and sharing.
+    this.saveRoomDeviceSnapshot(deviceSnapshotKey, activeDeviceSnapshot);
     return roomId;
   }
 
