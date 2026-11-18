@@ -194,6 +194,11 @@ test('encrypted device inbox events are append-only and recipient-owned', async 
     createdAt: serverTimestamp(), protocol: 'matrix-olm-megolm',
   }));
 
+  // The sender can confirm an exact retry without gaining access to other
+  // recipients' inbox events; only the recipient can acknowledge/delete.
+  await assertSucceeds(getDoc(eventRef));
+  await assertFails(getDoc(doc(mallory(), 'users/alice/devices/alice-device/inbox/event-1')));
+
   await assertFails(updateDoc(eventRef, { payload: 'tampered-ciphertext' }));
   await assertFails(deleteDoc(eventRef));
   await assertSucceeds(deleteDoc(doc(alice(), 'users/alice/devices/alice-device/inbox/event-1')));
