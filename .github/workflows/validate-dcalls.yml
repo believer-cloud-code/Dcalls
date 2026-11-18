@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feature-username-authentication
+      - feature/trusted-device-authorization
   pull_request:
     branches:
       - master
@@ -39,8 +40,12 @@ jobs:
         run: npm run lint
       - name: Build web application
         run: npm run build
+      - name: Test trusted device D1 schema
+        run: python -m unittest tests/test_device_auth_schema.py
       - name: Install Cloudflare Worker dependencies
         run: npm ci --prefix cloudflare
+      - name: Test Cloudflare Worker security primitives
+        run: npm test --prefix cloudflare
       - name: Validate Cloudflare Worker bundle
         working-directory: cloudflare
         run: npx wrangler deploy --dry-run --outdir /tmp/dcalls-worker-dist

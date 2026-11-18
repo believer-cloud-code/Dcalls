@@ -18,6 +18,16 @@ import {
 } from '@matrix-org/matrix-sdk-crypto-wasm';
 import { getMatrixStorePassphrase } from './cryptoStoreVault';
 import { deviceRegistryService } from './deviceRegistryService';
+import { callWorkerJson, getWorkerBaseUrl } from './cloudflareApi';
+
+function compareUnicodeCodePoints(left: string, right: string): number {
+  const a = Array.from(left, (character) => character.codePointAt(0)!);
+  const b = Array.from(right, (character) => character.codePointAt(0)!);
+  for (let index = 0; index < Math.min(a.length, b.length); index += 1) {
+    if (a[index] !== b[index]) return a[index] - b[index];
+  }
+  return a.length - b.length;
+}
 
 function canonicalJson(value: unknown): string {
   const normalize = (input: unknown): unknown => {
@@ -25,7 +35,7 @@ function canonicalJson(value: unknown): string {
     if (input && typeof input === 'object') {
       return Object.fromEntries(
         Object.entries(input as Record<string, unknown>)
-          .sort(([left], [right]) => left.localeCompare(right))
+          .sort(([left], [right]) => compareUnicodeCodePoints(left, right))
           .map(([key, item]) => [key, normalize(item)]),
       );
     }
@@ -134,6 +144,187 @@ class MatrixCryptoService {
   }
 
 
+  async listRegisteredDevices(firebaseUid: string): Promise<Array<{
+    id: string; deviceKeys?: Record<string, unknown>; revokedAt?: unknown; updatedAt?: unknown;
+  }>> {
+    return this.withAccountLock(firebaseUid, async () => {
+      if (import.meta.env.VITE_TRUSTED_DEVICE_AUTH_ENABLED === 'true' && getWorkerBaseUrl()) {
+        const deviceId = await this.getDeviceId(firebaseUid);
+        const machine = await this.getMachine(firebaseUid);
+        const response = await this.callTrustedDeviceAction(
+          machine, firebaseUid, deviceId, 'device.list', {}, '/device/list',
+        ) as { devices?: Array<{
+          id: string; deviceKeys?: Record<string, unknown>; revokedAt?: unknown; updatedAt?: unknown;
+        }> };
+        return response.devices ?? [];
+      }
+      return deviceRegistryService.listAllDevices(firebaseUid);
+    });
+  }
+
+  async revokeDevice(firebaseUid: string, targetDeviceId: string): Promise<void> {
+    if (!firebaseUid || !targetDeviceId) throw new Error('A signed-in account and target device are required.');
+    await this.withAccountLock(firebaseUid, async () => {
+      if (import.meta.env.VITE_TRUSTED_DEVICE_AUTH_ENABLED === 'true' && getWorkerBaseUrl()) {
+        const deviceId = await this.getDeviceId(firebaseUid);
+        const machine = await this.getMachine(firebaseUid);
+        await this.callTrustedDeviceAction(
+          machine, firebaseUid, deviceId, 'device.revoke', { targetDeviceId }, '/device/revoke',
+        );
+      }
+      // Keep the legacy Firestore record synchronized until the complete
+      // device data plane has migrated and Firestore rules are locked down.
+      await deviceRegistryService.revokeDevice(firebaseUid, targetDeviceId);
+    });
+  }
+
+  /**
+   * Signs a canonical trusted-service request with this installation's Matrix
+   * device key. The Worker verifies the returned ed25519:<deviceId> signature
+   * against the public key already enrolled for this exact device.
+   */
+  async callTrustedDeviceWorker(
+    firebaseUid: string,
+    action: string,
+    payload: Record<string, unknown>,
+    path: string,
+  ): Promise<any> {
+    return this.withAccountLock(firebaseUid, async () => {
+      const machine = await this.getMachine(firebaseUid);
+      const deviceId = await this.getDeviceId(firebaseUid);
+      return this.callTrustedDeviceAction(machine, firebaseUid, deviceId, action, payload, path);
+    });
+  }
+
+  async signTrustedDeviceRequest(
+    firebaseUid: string,
+    request: Record<string, unknown>,
+  ): Promise<{ message: string; signatures: string }> {
+    return this.withAccountLock(firebaseUid, async () => {
+      const machine = await this.getMachine(firebaseUid);
+      const message = canonicalJson(request);
+      const signatures = await machine.sign(message);
+      return {
+        message,
+        signatures: signatures.asJSON(),
+      };
+    });
+  }
+
+  private async callTrustedDeviceAction(
+    machine: OlmMachine,
+    firebaseUid: string,
+    deviceId: string,
+    action: string,
+    payload: Record<string, unknown>,
+    path: string,
+  ): Promise<any> {
+    const counterKey = `dcalls.trusted-device.counter.${firebaseUid}.${deviceId}`;
+    const storedCounter = Number(localStorage.getItem(counterKey) ?? '0');
+    // Timestamp-derived counters recover if the local counter key is cleared,
+    // while the stored value still guarantees strictly increasing requests.
+    const counter = Math.max(Date.now() * 1000, storedCounter + 1);
+    if (!Number.isSafeInteger(counter) || counter < 1) {
+      throw new Error('The trusted device request counter is invalid.');
+    }
+    const request = {
+      version: 1 as const,
+      protocol: 'dcalls-device-auth-v1' as const,
+      uid: firebaseUid,
+      deviceId,
+      action,
+      requestId: crypto.randomUUID().replace(/[^A-Za-z0-9_-]/g, ''),
+      counter,
+      issuedAt: Date.now(),
+      payload,
+    };
+    // Persist before sending so a lost response cannot cause counter reuse.
+    localStorage.setItem(counterKey, String(counter));
+    const signatures = await machine.sign(canonicalJson(request));
+    return callWorkerJson(path, {
+      method: 'POST',
+      body: JSON.stringify({ request, signatures: JSON.parse(signatures.asJSON()) }),
+    });
+  }
+
+  private async getDeviceKeyStats(
+    machine: OlmMachine,
+    firebaseUid: string,
+    deviceId: string,
+  ): Promise<{ oneTimeKeyCounts: Record<string, number>; unusedFallbackKeyTypes: string[] }> {
+    if (import.meta.env.VITE_TRUSTED_DEVICE_AUTH_ENABLED === 'true' && getWorkerBaseUrl()) {
+      return this.callTrustedDeviceAction(
+        machine, firebaseUid, deviceId, 'device.keys.counts', {}, '/device/keys/counts',
+      ) as Promise<{ oneTimeKeyCounts: Record<string, number>; unusedFallbackKeyTypes: string[] }>;
+    }
+    const [oneTimeKeyCounts, unusedFallbackKeyTypes] = await Promise.all([
+      deviceRegistryService.getOneTimeKeyCounts(firebaseUid, deviceId),
+      deviceRegistryService.getUnusedFallbackKeyTypes(firebaseUid, deviceId),
+    ]);
+    return { oneTimeKeyCounts, unusedFallbackKeyTypes };
+  }
+
+  private async enrollTrustedDeviceIfEnabled(
+    firebaseUid: string,
+    deviceKeys: Record<string, unknown>,
+    oneTimeKeys: Record<string, Record<string, unknown>> = {},
+    fallbackKeys: Record<string, Record<string, unknown>> = {},
+  ): Promise<boolean> {
+    if (import.meta.env.VITE_TRUSTED_DEVICE_AUTH_ENABLED !== 'true' || !getWorkerBaseUrl()) return true;
+
+    const crossSigning = await deviceRegistryService.getPublicCrossSigningKeys(firebaseUid);
+    // A fresh device may publish its device keys before it has received the
+    // account cross-signing secrets. Defer D1 enrollment until the trusted
+    // source device signs this device key during the QR-link bootstrap.
+    if (!crossSigning) return false;
+
+    const matrixUserId = await stableMatrixUserId(firebaseUid);
+    const deviceKeyId = `ed25519:${String(deviceKeys.device_id ?? '')}`;
+    const deviceSignatureRoot = crossSigning.signatures[matrixUserId] as Record<string, unknown> | undefined;
+    const signedDeviceKey = deviceSignatureRoot?.[deviceKeyId] as Record<string, unknown> | undefined;
+    const deviceKeySignatures = signedDeviceKey?.signatures as Record<string, unknown> | undefined;
+    if (!deviceKeySignatures || !deviceKeySignatures[matrixUserId]) return false;
+
+    const attachSignature = (key: Record<string, unknown>, keyId: string | undefined) => {
+      if (!keyId) throw new Error('A Matrix cross-signing key ID is missing.');
+      const root = crossSigning.signatures[matrixUserId] as Record<string, unknown> | undefined;
+      const signedKey = root?.[keyId] as Record<string, unknown> | undefined;
+      const signatures = signedKey?.signatures as Record<string, unknown> | undefined;
+      if (!signatures || !signatures[matrixUserId]) {
+        throw new Error(`The cross-signing signature for ${keyId} is unavailable.`);
+      }
+      return {
+        ...key,
+        signatures: {
+          ...(key.signatures as Record<string, unknown> ?? {}),
+          ...signatures,
+        },
+      };
+    };
+    const keyId = (key: Record<string, unknown>) => {
+      const keys = key.keys as Record<string, string> | undefined;
+      return keys ? Object.keys(keys).find((id) => id.startsWith('ed25519:')) : undefined;
+    };
+
+    await callWorkerJson('/device/enroll', {
+      method: 'POST',
+      body: JSON.stringify({
+        masterKey: attachSignature(crossSigning.masterKey, keyId(crossSigning.masterKey)),
+        selfSigningKey: attachSignature(crossSigning.selfSigningKey, keyId(crossSigning.selfSigningKey)),
+        userSigningKey: attachSignature(crossSigning.userSigningKey, keyId(crossSigning.userSigningKey)),
+        deviceKeys: attachSignature(deviceKeys, `ed25519:${String(deviceKeys.device_id ?? '')}`),
+      }),
+    });
+
+    const deviceId = String(deviceKeys.device_id ?? '');
+    const machine = await this.getMachine(firebaseUid);
+    await this.callTrustedDeviceAction(
+      machine, firebaseUid, deviceId, 'device.keys.publish',
+      { oneTimeKeys, fallbackKeys }, '/device/keys/publish',
+    );
+    return true;
+  }
+
   /**
    * Publishes the SDK-generated public device identity and pre-keys to
    * Firestore, then acknowledges the upload to the local Matrix state machine.
@@ -171,9 +362,16 @@ class MatrixCryptoService {
         oneTimeKeys: body.one_time_keys ?? {},
         fallbackKeys: body.fallback_keys,
       });
-
-      const oneTimeKeyCounts = await deviceRegistryService.getOneTimeKeyCounts(firebaseUid, deviceId);
-      const unusedFallbackKeyTypes = await deviceRegistryService.getUnusedFallbackKeyTypes(firebaseUid, deviceId);
+      const trustedEnrolled = await this.enrollTrustedDeviceIfEnabled(
+        firebaseUid, body.device_keys, body.one_time_keys ?? {}, body.fallback_keys ?? {},
+      );
+      const keyStats = trustedEnrolled
+        ? await this.getDeviceKeyStats(machine, firebaseUid, deviceId)
+        : {
+            oneTimeKeyCounts: await deviceRegistryService.getOneTimeKeyCounts(firebaseUid, deviceId),
+            unusedFallbackKeyTypes: await deviceRegistryService.getUnusedFallbackKeyTypes(firebaseUid, deviceId),
+          };
+      const { oneTimeKeyCounts, unusedFallbackKeyTypes } = keyStats;
       await machine.markRequestAsSent(
         request.id,
         request.type,
@@ -273,6 +471,24 @@ class MatrixCryptoService {
         signatures,
       });
 
+      const ownDeviceId = await this.getDeviceId(firebaseUid);
+      const ownDevice = (await deviceRegistryService.listPublicDevices(firebaseUid))
+        .find((device) => device.id === ownDeviceId && device.deviceKeys);
+      let trustedDeviceEnrolled = false;
+      if (ownDevice?.deviceKeys) {
+        const keyMaterial = await deviceRegistryService.getPublishedKeyMaterial(firebaseUid, ownDeviceId);
+        trustedDeviceEnrolled = await this.enrollTrustedDeviceIfEnabled(
+          firebaseUid,
+          ownDevice.deviceKeys,
+          keyMaterial.oneTimeKeys,
+          keyMaterial.fallbackKeys,
+        );
+      }
+      if (import.meta.env.VITE_TRUSTED_DEVICE_AUTH_ENABLED === 'true' &&
+          getWorkerBaseUrl() && !trustedDeviceEnrolled) {
+        throw new Error('The device could not be enrolled with trusted authorization. Confirm that this device has imported the account cross-signing secrets and has a valid self-signing signature.');
+      }
+
       const status = await machine.crossSigningStatus();
       if (!status || !status.hasMaster || !status.hasSelfSigning || !status.hasUserSigning) {
         throw new Error('Cross-signing keys were generated but are not all available in the local crypto store.');
@@ -369,6 +585,8 @@ class MatrixCryptoService {
     machine: OlmMachine,
     request: KeysQueryRequest,
     matrixToFirebaseUid: Map<string, string>,
+    requesterUid: string,
+    chatId: string,
   ): Promise<void> {
     const body = JSON.parse(request.body) as {
       device_keys?: Record<string, string[]>;
@@ -386,6 +604,45 @@ class MatrixCryptoService {
       self_signing_keys: {},
       user_signing_keys: {},
     };
+
+    if (import.meta.env.VITE_TRUSTED_DEVICE_AUTH_ENABLED === 'true' && getWorkerBaseUrl()) {
+      const peerUids = Object.keys(body.device_keys ?? {})
+        .map((matrixUserId) => matrixToFirebaseUid.get(matrixUserId))
+        .filter((value): value is string => Boolean(value));
+      const requesterDeviceId = await this.getDeviceId(requesterUid);
+      const trusted = await this.callTrustedDeviceAction(
+        machine,
+        requesterUid,
+        requesterDeviceId,
+        'device.keys.query',
+        { chatId, peerUids },
+        '/device/keys/query',
+      ) as {
+        device_keys?: Record<string, Record<string, unknown>>;
+        master_keys?: Record<string, unknown>;
+        self_signing_keys?: Record<string, unknown>;
+        user_signing_keys?: Record<string, unknown>;
+      };
+      for (const matrixUserId of Object.keys(body.device_keys ?? {})) {
+        const requestedIds = body.device_keys?.[matrixUserId] ?? [];
+        const allDevices = trusted.device_keys?.[matrixUserId] ?? {};
+        const selected: Record<string, unknown> = {};
+        for (const [deviceId, keys] of Object.entries(allDevices)) {
+          if (requestedIds.length && !requestedIds.includes(deviceId)) continue;
+          selected[deviceId] = keys;
+        }
+        if (!Object.keys(selected).length) {
+          response.failures[matrixUserId] = { errcode: 'M_NOT_FOUND', error: 'No active trusted devices are registered for this account.' };
+          continue;
+        }
+        response.device_keys[matrixUserId] = selected;
+        if (trusted.master_keys?.[matrixUserId]) response.master_keys[matrixUserId] = trusted.master_keys[matrixUserId];
+        if (trusted.self_signing_keys?.[matrixUserId]) response.self_signing_keys[matrixUserId] = trusted.self_signing_keys[matrixUserId];
+        if (trusted.user_signing_keys?.[matrixUserId]) response.user_signing_keys[matrixUserId] = trusted.user_signing_keys[matrixUserId];
+      }
+      await machine.markRequestAsSent(request.id, request.type, JSON.stringify(response));
+      return;
+    }
 
     for (const matrixUserId of Object.keys(body.device_keys ?? {})) {
       const firebaseUid = matrixToFirebaseUid.get(matrixUserId);
@@ -438,6 +695,7 @@ class MatrixCryptoService {
     request: KeysClaimRequest,
     matrixToFirebaseUid: Map<string, string>,
     chatId: string,
+    requesterUid: string,
   ): Promise<void> {
     const body = JSON.parse(request.body) as {
       one_time_keys?: Record<string, Record<string, string>>;
@@ -455,12 +713,23 @@ class MatrixCryptoService {
       }
 
       for (const [deviceId, algorithm] of Object.entries(devices)) {
-        const claimed = await deviceRegistryService.claimOneTimeKey(
-          firebaseUid,
-          deviceId,
-          chatId,
-          algorithm,
-        );
+        let claimed: { id: string; key: Record<string, unknown>; fallback?: boolean } | null;
+        if (import.meta.env.VITE_TRUSTED_DEVICE_AUTH_ENABLED === 'true' && getWorkerBaseUrl()) {
+          const requesterDeviceId = await this.getDeviceId(requesterUid);
+          const response = await this.callTrustedDeviceAction(
+            machine,
+            requesterUid,
+            requesterDeviceId,
+            'device.keys.claim',
+            { recipientUid: firebaseUid, recipientDeviceId: deviceId, chatId, algorithm },
+            '/device/keys/claim',
+          ) as { result?: { keyId: string; key: Record<string, unknown>; fallback: boolean } | null };
+          claimed = response?.result
+            ? { id: response.result.keyId, key: response.result.key, fallback: response.result.fallback }
+            : null;
+        } else {
+          claimed = await deviceRegistryService.claimOneTimeKey(firebaseUid, deviceId, chatId, algorithm);
+        }
         if (!claimed) continue;
         response.one_time_keys[matrixUserId] ??= {};
         response.one_time_keys[matrixUserId][deviceId] ??= {};
@@ -498,14 +767,33 @@ class MatrixCryptoService {
           content,
         };
         const eventId = `${request.txn_id}_${recipientUid}_${recipientDeviceId}`;
-        await deviceRegistryService.sendEncryptedDeviceEvent(
-          recipientUid,
-          recipientDeviceId,
-          senderDeviceId,
-          eventId,
-          chatId,
-          JSON.stringify(event),
-        );
+        const encryptedPayload = JSON.stringify(event);
+        if (import.meta.env.VITE_TRUSTED_DEVICE_AUTH_ENABLED === 'true' && getWorkerBaseUrl()) {
+          await this.callTrustedDeviceAction(
+            machine,
+            senderFirebaseUid,
+            senderDeviceId,
+            'device.inbox.send',
+            {
+              recipientUid,
+              recipientDeviceId,
+              eventId,
+              chatId,
+              payload: encryptedPayload,
+              protocol: 'matrix-olm-megolm',
+            },
+            '/device/inbox/send',
+          );
+        } else {
+          await deviceRegistryService.sendEncryptedDeviceEvent(
+            recipientUid,
+            recipientDeviceId,
+            senderDeviceId,
+            eventId,
+            chatId,
+            encryptedPayload,
+          );
+        }
       }
     }
 
@@ -596,14 +884,14 @@ class MatrixCryptoService {
     if (!(queryRequest instanceof KeysQueryRequest)) {
       throw new Error('The Matrix SDK did not produce a device-key query request.');
     }
-    await this.processKeysQuery(machine, queryRequest, matrixToFirebaseUid);
+    await this.processKeysQuery(machine, queryRequest, matrixToFirebaseUid, firebaseUid, chatId);
 
     const sessionUsers = await Promise.all(allFirebaseUids.map(async (uid) =>
       new UserId(await stableMatrixUserId(uid))
     ));
     const claimRequest = await machine.getMissingSessions(sessionUsers);
     if (claimRequest instanceof KeysClaimRequest) {
-      await this.processKeysClaim(machine, claimRequest, matrixToFirebaseUid, chatId);
+      await this.processKeysClaim(machine, claimRequest, matrixToFirebaseUid, chatId, firebaseUid);
     }
 
     const roomId = await this.stableRoomId(chatId);
@@ -793,11 +1081,19 @@ class MatrixCryptoService {
     // Drain a bounded number of batches per invocation. This avoids leaving
     // a large offline backlog dependent on a later, unrelated chat action.
     for (let batchNumber = 0; batchNumber < maxBatches; batchNumber += 1) {
-      const inbox = await deviceRegistryService.listPendingDeviceEvents(
-        firebaseUid,
-        deviceId,
-        chatId,
-      );
+      const inbox = import.meta.env.VITE_TRUSTED_DEVICE_AUTH_ENABLED === 'true' && getWorkerBaseUrl()
+        ? ((await this.callTrustedDeviceAction(
+            machine,
+            firebaseUid,
+            deviceId,
+            'device.inbox.list',
+            { chatId },
+            '/device/inbox/list',
+          )) as { events?: Array<{
+            id: string; senderUid?: string; senderDeviceId?: string; chatId?: string;
+            payload?: string; protocol?: string; createdAt?: number;
+          }> }).events ?? []
+        : await deviceRegistryService.listPendingDeviceEvents(firebaseUid, deviceId, chatId);
       if (!inbox.length) return totalProcessed;
 
       const events: Record<string, unknown>[] = [];
@@ -831,28 +1127,35 @@ class MatrixCryptoService {
         if (!(queryRequest instanceof KeysQueryRequest)) {
           throw new Error('The Matrix SDK did not produce a sender-device query request.');
         }
-        await this.processKeysQuery(machine, queryRequest, matrixToFirebaseUid);
+        await this.processKeysQuery(machine, queryRequest, matrixToFirebaseUid, firebaseUid, chatId);
       }
 
       // MSC4186 avoids falsely telling the SDK that the server has zero
       // one-time keys remaining while processing these device events.
+      const keyStats = await this.getDeviceKeyStats(machine, firebaseUid, deviceId);
       await machine.receiveSyncChangesMsc4186(
         JSON.stringify(events),
         new DeviceLists([], []),
-        await deviceRegistryService.getOneTimeKeyCounts(firebaseUid, deviceId)
-          .then((counts) => new Map(Object.entries(counts))),
-        await deviceRegistryService.getUnusedFallbackKeyTypes(firebaseUid, deviceId)
-          .then((types) => new Set(types)),
+        new Map(Object.entries(keyStats.oneTimeKeyCounts)),
+        new Set(keyStats.unusedFallbackKeyTypes),
         undefined,
       );
 
       // Acknowledge only after the crypto store accepts the complete batch.
       // The Firestore batch is atomic: on failure every event remains queued.
-      await deviceRegistryService.deleteDeviceInboxEvents(
-        firebaseUid,
-        deviceId,
-        inbox.map((item) => item.id),
-      );
+      const acknowledgedEventIds = inbox.map((item) => item.id);
+      if (import.meta.env.VITE_TRUSTED_DEVICE_AUTH_ENABLED === 'true' && getWorkerBaseUrl()) {
+        await this.callTrustedDeviceAction(
+          machine,
+          firebaseUid,
+          deviceId,
+          'device.inbox.ack',
+          { chatId, eventIds: acknowledgedEventIds },
+          '/device/inbox/ack',
+        );
+      } else {
+        await deviceRegistryService.deleteDeviceInboxEvents(firebaseUid, deviceId, acknowledgedEventIds);
+      }
       totalProcessed += inbox.length;
 
       if (typeof window !== 'undefined') {
@@ -906,10 +1209,10 @@ class MatrixCryptoService {
       let processed = 0;
       for (const request of outgoing) {
         if (request instanceof KeysQueryRequest) {
-          await this.processKeysQuery(machine, request, matrixToFirebaseUid);
+          await this.processKeysQuery(machine, request, matrixToFirebaseUid, firebaseUid, chatId);
           processed += 1;
         } else if (request instanceof KeysClaimRequest) {
-          await this.processKeysClaim(machine, request, matrixToFirebaseUid, chatId);
+          await this.processKeysClaim(machine, request, matrixToFirebaseUid, chatId, firebaseUid);
           processed += 1;
         } else if (request instanceof ToDeviceRequest) {
           await this.processToDevice(
