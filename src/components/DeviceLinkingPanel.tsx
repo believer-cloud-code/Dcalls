@@ -379,7 +379,7 @@ export const DeviceLinkingPanel: React.FC<DeviceLinkingPanelProps> = ({ userId }
         {status.includes('verified') || status.includes('established') ? <CheckCircle2 size={16} className="text-emerald-400 mt-0.5" /> : <Smartphone size={16} className="text-gray-400 mt-0.5" />}
         <div className="flex-1">
           <p className="text-xs font-semibold">{status}</p>
-          <p className="text-[10px] text-gray-500 mt-1">This stage verifies the encrypted channel only. Account secrets, message history and device trust transfer are not enabled yet.</p>
+          <p className="text-[10px] text-gray-500 mt-1">After both devices confirm the matching code, account cross-signing keys can be transferred through the encrypted channel. Message history and device trust transfer are not included.</p>
         </div>
       </div>
 
