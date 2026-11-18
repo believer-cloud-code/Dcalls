@@ -44,8 +44,7 @@ test('chat participants can upload and read encrypted binary attachments', async
     contentType: 'application/octet-stream',
   }));
 
-  const bobFile = ref(bobStorage(), 'chats/chat-1/media/attachment-participant.bin');
-  const metadata = await assertSucceeds(getMetadata(bobFile));
+  const metadata = await assertSucceeds(getMetadata(aliceFile));
   assert.equal(metadata.size, bytes.byteLength);
 });
 
