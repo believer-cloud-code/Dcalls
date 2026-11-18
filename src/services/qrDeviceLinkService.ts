@@ -34,6 +34,7 @@ interface SourceSession {
   recipient: HpkeRecipientChannel;
   joinRequest?: { deviceId: string; deviceName: string; channel: UnidirectionalRecipientChannel };
   channel?: EstablishedHpkeChannel;
+  secretsCiphertext?: string;
 }
 
 interface ScannerSession {
@@ -42,6 +43,8 @@ interface ScannerSession {
   expiresAt: number;
   sender: UnidirectionalSenderChannel;
   channel?: EstablishedHpkeChannel;
+  receivedSecretsBundle?: string;
+  secretsAckCiphertext?: string;
 }
 
 function randomHex(byteLength = 16): string {
@@ -392,12 +395,20 @@ class QrDeviceLinkService {
       throw new Error('Verify the matching device code before transferring account keys.');
     }
     const ref = messageRef(uid, sessionId, 'secrets');
-    const ciphertext = source.channel.seal(serializedBundle, aadFor(sessionId));
+    // HPKE channels are stateful. Reuse the exact ciphertext after an
+    // ambiguous Firestore failure instead of sealing the same transfer again.
+    const ciphertext = source.secretsCiphertext ?? source.channel.seal(serializedBundle, aadFor(sessionId));
+    source.secretsCiphertext = ciphertext;
     await runTransaction(db, async (transaction) => {
       const existing = await transaction.get(ref);
       const current = await transaction.get(sessionRef(uid, sessionId));
-      if (existing.exists() || !current.exists() || current.data().state !== 'verified') {
-        throw new Error('Account keys have already been sent or this pairing session is no longer verified.');
+      if (!current.exists() || current.data().state !== 'verified') {
+        throw new Error('This pairing session is no longer verified.');
+      }
+      if (existing.exists()) {
+        const stored = existing.data();
+        if (stored.senderDeviceId === source.deviceId && stored.ciphertext === ciphertext) return;
+        throw new Error('A different account-key transfer already exists for this pairing session.');
       }
       transaction.set(ref, { senderDeviceId: source.deviceId, ciphertext, createdAt: serverTimestamp() });
     });
@@ -414,9 +425,12 @@ class QrDeviceLinkService {
     if (!parent.exists() || parent.data().state !== 'verified') {
       throw new Error('The existing device has not verified this pairing session.');
     }
+    if (scanner.receivedSecretsBundle !== undefined) return scanner.receivedSecretsBundle;
     const snapshot = await getDoc(messageRef(uid, sessionId, 'secrets'));
     if (!snapshot.exists()) throw new Error('The existing device has not sent the account signing keys yet.');
-    return scanner.channel.open(String(snapshot.data().ciphertext ?? ''), aadFor(sessionId));
+    const bundle = scanner.channel.open(String(snapshot.data().ciphertext ?? ''), aadFor(sessionId));
+    scanner.receivedSecretsBundle = bundle;
+    return bundle;
   }
 
   async acknowledgeSecretsBundle(uid: string, sessionId: string): Promise<void> {
@@ -426,15 +440,23 @@ class QrDeviceLinkService {
       throw new Error('The new-device secure channel is unavailable.');
     }
     const ref = messageRef(uid, sessionId, 'secretsAck');
-    const ciphertext = scanner.channel.seal(
+    // Keep the acknowledgement ciphertext stable across retries because
+    // sealing advances the stateful HPKE channel.
+    const ciphertext = scanner.secretsAckCiphertext ?? scanner.channel.seal(
       JSON.stringify({ protocol: PROTOCOL, version: VERSION, type: 'secrets-received' }),
       aadFor(sessionId),
     );
+    scanner.secretsAckCiphertext = ciphertext;
     await runTransaction(db, async (transaction) => {
       const existing = await transaction.get(ref);
       const current = await transaction.get(sessionRef(uid, sessionId));
-      if (existing.exists() || !current.exists() || current.data().state !== 'verified') {
-        throw new Error('The transfer acknowledgement already exists or the session is no longer active.');
+      if (!current.exists() || current.data().state !== 'verified') {
+        throw new Error('The pairing session is no longer active.');
+      }
+      if (existing.exists()) {
+        const stored = existing.data();
+        if (stored.senderDeviceId === scanner.deviceId && stored.ciphertext === ciphertext) return;
+        throw new Error('A different transfer acknowledgement already exists.');
       }
       transaction.set(ref, { senderDeviceId: scanner.deviceId, ciphertext, createdAt: serverTimestamp() });
     });
