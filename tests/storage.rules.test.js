@@ -39,27 +39,27 @@ const malloryStorage = () => env.authenticatedContext('mallory').storage();
 const bytes = new Uint8Array([1, 2, 3, 4]);
 
 test('chat participants can upload and read encrypted binary attachments', async () => {
-  const aliceFile = ref(aliceStorage(), 'chats/chat-1/media/attachment-1.bin');
+  const aliceFile = ref(aliceStorage(), 'chats/chat-1/media/attachment-participant.bin');
   await assertSucceeds(uploadBytes(aliceFile, bytes, {
     contentType: 'application/octet-stream',
   }));
 
-  const bobFile = ref(bobStorage(), 'chats/chat-1/media/attachment-1.bin');
+  const bobFile = ref(bobStorage(), 'chats/chat-1/media/attachment-participant.bin');
   const downloaded = await assertSucceeds(getBytes(bobFile, 16));
   assert.deepEqual(Array.from(downloaded), Array.from(bytes));
 });
 
 test('non-participants cannot upload or read chat attachments', async () => {
-  const malloryFile = ref(malloryStorage(), 'chats/chat-1/media/attachment-2.bin');
+  const malloryFile = ref(malloryStorage(), 'chats/chat-1/media/attachment-nonparticipant.bin');
   await assertFails(uploadBytes(malloryFile, bytes, {
     contentType: 'application/octet-stream',
   }));
 
-  const aliceFile = ref(aliceStorage(), 'chats/chat-1/media/attachment-1.bin');
+  const aliceFile = ref(aliceStorage(), 'chats/chat-1/media/attachment-participant.bin');
   await assertSucceeds(uploadBytes(aliceFile, bytes, {
     contentType: 'application/octet-stream',
   }));
-  await assertFails(getBytes(ref(malloryStorage(), 'chats/chat-1/media/attachment-1.bin'), 16));
+  await assertFails(getBytes(ref(malloryStorage(), 'chats/chat-1/media/attachment-participant.bin'), 16));
 });
 
 test('chat attachments reject non-binary content types', async () => {
