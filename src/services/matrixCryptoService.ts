@@ -809,7 +809,9 @@ class MatrixCryptoService {
 
         const event = JSON.parse(item.payload) as Record<string, unknown>;
         const expectedSender = await stableMatrixUserId(senderUid);
-        if (event.sender !== expectedSender ||
+        if (
+            event.sender !== expectedSender ||
+            (item.senderDeviceId && event.sender_device !== item.senderDeviceId) ||
             typeof event.type !== 'string' ||
             !event.content ||
             typeof event.content !== 'object') {
