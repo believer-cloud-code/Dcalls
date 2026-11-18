@@ -591,47 +591,16 @@ class MatrixCryptoService {
       );
     }
 
-    // Drain any additional protocol messages produced by the SDK operations.
-    const outgoing = await machine.outgoingRequests();
-    for (const request of outgoing) {
-      if (request instanceof KeysUploadRequest) {
-        // The SDK may replenish keys while processing the exchange.
-        const body = JSON.parse(request.body) as {
-          device_keys?: Record<string, unknown>;
-          one_time_keys?: Record<string, Record<string, unknown>>;
-          fallback_keys?: Record<string, Record<string, unknown>>;
-        };
-        if (!body.device_keys) throw new Error('The Matrix SDK generated an invalid device-key upload.');
-        const expectedUserId = await stableMatrixUserId(firebaseUid);
-        if (body.device_keys.device_id !== senderDeviceId || body.device_keys.user_id !== expectedUserId) {
-          throw new Error('The replenished Matrix device keys do not match this installation identity.');
-        }
-        await deviceRegistryService.publishDeviceKeys(firebaseUid, senderDeviceId, {
-          deviceKeys: body.device_keys,
-          oneTimeKeys: body.one_time_keys ?? {},
-          fallbackKeys: body.fallback_keys,
-        });
-        const oneTimeKeyCounts = await deviceRegistryService.getOneTimeKeyCounts(firebaseUid, senderDeviceId);
-        const unusedFallbackKeyTypes = await deviceRegistryService.getUnusedFallbackKeyTypes(firebaseUid, senderDeviceId);
-        await machine.markRequestAsSent(
-          request.id,
-          request.type,
-          JSON.stringify({
-            one_time_key_counts: oneTimeKeyCounts,
-            unused_fallback_key_types: unusedFallbackKeyTypes,
-          }),
-        );
-      } else if (request instanceof ToDeviceRequest) {
-        await this.processToDevice(
-          machine,
-          request,
-          firebaseUid,
-          senderDeviceId,
-          matrixToFirebaseUid,
-          chatId,
-        );
-      }
-    }
+    // Drain chained requests as well as the initial room-key share. This
+    // handles follow-up key queries, claims and device messages in the same
+    // exchange instead of leaving them queued for the next chat action.
+    await this.drainOutgoingRequestsUnlocked(
+      machine,
+      firebaseUid,
+      senderDeviceId,
+      matrixToFirebaseUid,
+      chatId,
+    );
 
     return roomId;
   }
