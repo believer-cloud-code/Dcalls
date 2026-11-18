@@ -41,6 +41,16 @@ beforeEach(async () => {
       deviceKeys: { device_id: 'alice-device' },
       fallbackKeys: {},
     });
+    await setDoc(doc(db, 'users/bob/devices/bob-device'), {
+      deviceId: 'bob-device',
+      deviceKeys: { device_id: 'bob-device' },
+      fallbackKeys: {},
+    });
+    await setDoc(doc(db, 'users/mallory/devices/mallory-device'), {
+      deviceId: 'mallory-device',
+      deviceKeys: { device_id: 'mallory-device' },
+      fallbackKeys: {},
+    });
   });
 });
 
@@ -207,7 +217,7 @@ test('a revoked device cannot create a new QR pairing session', async () => {
 test('encrypted device inbox events are append-only and recipient-owned', async () => {
   const eventRef = doc(bob(), 'users/alice/devices/alice-device/inbox/event-1');
   await assertSucceeds(setDoc(eventRef, {
-    senderUid: 'bob', chatId: 'chat-1', payload: 'encrypted-event',
+    senderUid: 'bob', senderDeviceId: 'bob-device', chatId: 'chat-1', payload: 'encrypted-event',
     createdAt: serverTimestamp(), protocol: 'matrix-olm-megolm',
   }));
 
@@ -224,12 +234,12 @@ test('encrypted device inbox events are append-only and recipient-owned', async 
 
 test('device inbox rejects spoofed senders, nonparticipants and revoked recipients', async () => {
   await assertFails(setDoc(doc(mallory(), 'users/alice/devices/alice-device/inbox/nonparticipant'), {
-    senderUid: 'mallory', chatId: 'chat-1', payload: 'ciphertext',
+    senderUid: 'mallory', senderDeviceId: 'mallory-device', chatId: 'chat-1', payload: 'ciphertext',
     createdAt: serverTimestamp(), protocol: 'matrix-olm-megolm',
   }));
 
   await assertFails(setDoc(doc(bob(), 'users/alice/devices/alice-device/inbox/spoofed-sender'), {
-    senderUid: 'alice', chatId: 'chat-1', payload: 'ciphertext',
+    senderUid: 'alice', senderDeviceId: 'bob-device', chatId: 'chat-1', payload: 'ciphertext',
     createdAt: serverTimestamp(), protocol: 'matrix-olm-megolm',
   }));
 
@@ -238,7 +248,16 @@ test('device inbox rejects spoofed senders, nonparticipants and revoked recipien
   });
 
   await assertFails(setDoc(doc(bob(), 'users/alice/devices/alice-device/inbox/revoked-recipient'), {
-    senderUid: 'bob', chatId: 'chat-1', payload: 'ciphertext',
+    senderUid: 'bob', senderDeviceId: 'bob-device', chatId: 'chat-1', payload: 'ciphertext',
+    createdAt: serverTimestamp(), protocol: 'matrix-olm-megolm',
+  }));
+
+  await updateDoc(doc(bob(), 'users/bob/devices/bob-device'), {
+    revokedAt: serverTimestamp(),
+    revokedBy: 'bob',
+  });
+  await assertFails(setDoc(doc(bob(), 'users/alice/devices/alice-device/inbox/revoked-sender'), {
+    senderUid: 'bob', senderDeviceId: 'bob-device', chatId: 'chat-1', payload: 'ciphertext',
     createdAt: serverTimestamp(), protocol: 'matrix-olm-megolm',
   }));
 });
