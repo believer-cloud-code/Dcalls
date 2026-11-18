@@ -317,7 +317,12 @@ service cloud.firestore {
 
         match /inbox/{eventId} {
           // The sender may read only their own event to confirm an idempotent retry.
-          allow read: if isOwner(userId) || (isAuthenticated() && resource.data.senderUid == request.auth.uid);
+          // A revoked recipient device must not process queued key-share events.
+          // The original sender may still read its own event to confirm an exact retry.
+          allow read: if (
+            isOwner(userId) &&
+            !('revokedAt' in get(/databases/$(database)/documents/users/$(userId)/devices/$(deviceId)).data)
+          ) || (isAuthenticated() && resource.data.senderUid == request.auth.uid);
           allow delete: if isOwner(userId);
           // Inbox events are append-only; processing acknowledges by deleting them.
           allow create: if isAuthenticated() &&
