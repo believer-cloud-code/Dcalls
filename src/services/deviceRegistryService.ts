@@ -302,12 +302,13 @@ export const deviceRegistryService = {
   async sendEncryptedDeviceEvent(
     recipientUid: string,
     recipientDeviceId: string,
+    senderDeviceId: string,
     eventId: string,
     chatId: string,
     payload: string,
   ): Promise<void> {
-    if (!recipientUid || !recipientDeviceId || !eventId || !payload) {
-      throw new Error('A recipient device and encrypted event payload are required.');
+    if (!recipientUid || !recipientDeviceId || !senderDeviceId || !eventId || !payload) {
+      throw new Error('A sender, recipient device and encrypted event payload are required.');
     }
     if (payload.length > 900000) {
       throw new Error('The encrypted device event exceeds the supported size.');
@@ -315,6 +316,10 @@ export const deviceRegistryService = {
 
     const senderUid = auth.currentUser?.uid;
     if (!senderUid) throw new Error('Sign in before sending an encrypted device event.');
+    const senderDevice = await getDoc(doc(db, 'users', senderUid, 'devices', senderDeviceId));
+    if (!senderDevice.exists() || senderDevice.data().revokedAt) {
+      throw new Error('The sender device is unavailable or has been revoked.');
+    }
     const recipientDevice = await getDoc(doc(db, 'users', recipientUid, 'devices', recipientDeviceId));
     if (!recipientDevice.exists() || recipientDevice.data().revokedAt) {
       throw new Error('The recipient device is unavailable or has been revoked.');
@@ -323,6 +328,7 @@ export const deviceRegistryService = {
     const inboxRef = doc(db, 'users', recipientUid, 'devices', recipientDeviceId, 'inbox', eventId);
     const eventData = {
       senderUid,
+      senderDeviceId,
       chatId,
       payload,
       createdAt: serverTimestamp(),
@@ -341,6 +347,7 @@ export const deviceRegistryService = {
       const stored = existing.data();
       if (
         stored.senderUid !== senderUid ||
+        stored.senderDeviceId !== senderDeviceId ||
         stored.chatId !== chatId ||
         stored.payload !== payload ||
         stored.protocol !== 'matrix-olm-megolm'
