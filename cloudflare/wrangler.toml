@@ -11,15 +11,14 @@ ALLOWED_ORIGINS = "http://localhost:3000,https://localhost,capacitor://localhost
 binding = "BUCKET"
 bucket_name = "dcalls-uploads"
 
-# Secrets are configured with:
-# wrangler secret put FIREBASE_WEB_API_KEY
-# wrangler secret put DEEPSEEK_API_KEY
-# wrangler secret put OPENROUTER_API_KEY
+[[d1_databases]]
+# Must match the Worker Env.DEVICE_DB binding used by the trusted-device routes.
+binding = "DEVICE_DB"
+database_name = "dcalls-device-auth"
+database_id = "fc8965b7-01b7-4503-8d55-27e5aceca425"
+migrations_dir = "migrations"
 
-# Provision the database first with:
-#   npx wrangler d1 create dcalls-device-auth
-# Then uncomment and replace the database_id with the ID returned by Cloudflare.
-# [[d1_databases]]
-# binding = "DEVICE_DB"
-# database_name = "dcalls-device-auth"
-# database_id = "REPLACE_WITH_CREATED_D1_DATABASE_ID"
+# Secrets are configured with:
+#   npx wrangler secret put FIREBASE_WEB_API_KEY
+#   npx wrangler secret put DEEPSEEK_API_KEY
+#   npx wrangler secret put OPENROUTER_API_KEY
