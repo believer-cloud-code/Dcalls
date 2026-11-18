@@ -1,7 +1,7 @@
 -- Dcalls trusted device control plane (Cloudflare D1)
 -- Public keys and encrypted payloads only. Never store private crypto material.
 
-PRAGMA foreign_keys = ON;
+-- D1 enforces foreign keys automatically.
 
 CREATE TABLE IF NOT EXISTS account_identities (
   uid TEXT PRIMARY KEY NOT NULL,
