@@ -345,9 +345,20 @@ export const deviceRegistryService = {
       if (!existing.exists()) throw writeError;
 
       const stored = existing.data();
+      // Older queued events predate the top-level senderDeviceId field. Their
+      // immutable encrypted envelope already carries sender_device, so accept
+      // only an exact payload match that proves the same claimed device ID.
+      let storedSenderDeviceId = stored.senderDeviceId;
+      if (!storedSenderDeviceId && typeof stored.payload === 'string') {
+        try {
+          storedSenderDeviceId = (JSON.parse(stored.payload) as { sender_device?: string }).sender_device;
+        } catch {
+          storedSenderDeviceId = undefined;
+        }
+      }
       if (
         stored.senderUid !== senderUid ||
-        stored.senderDeviceId !== senderDeviceId ||
+        storedSenderDeviceId !== senderDeviceId ||
         stored.chatId !== chatId ||
         stored.payload !== payload ||
         stored.protocol !== 'matrix-olm-megolm'
