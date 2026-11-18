@@ -782,10 +782,13 @@ class MatrixCryptoService {
       undefined,
     );
 
-    // Only acknowledge after the crypto store has accepted the batch.
-    for (const item of inbox) {
-      await deviceRegistryService.deleteDeviceInboxEvent(firebaseUid, deviceId, item.id);
-    }
+    // Acknowledge the accepted batch atomically. If Firestore rejects the
+    // commit, every inbox record remains available for a safe retry.
+    await deviceRegistryService.deleteDeviceInboxEvents(
+      firebaseUid,
+      deviceId,
+      inbox.map((item) => item.id),
+    );
 
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('dcalls:matrix-keys-updated', { detail: { chatId } }));
