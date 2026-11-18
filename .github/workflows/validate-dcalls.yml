@@ -35,3 +35,8 @@ jobs:
         run: npm run lint
       - name: Build web application
         run: npm run build
+      - name: Install Cloudflare Worker dependencies
+        run: npm ci --prefix cloudflare
+      - name: Validate Cloudflare Worker bundle
+        working-directory: cloudflare
+        run: npx wrangler deploy --dry-run --outdir /tmp/dcalls-worker-dist
