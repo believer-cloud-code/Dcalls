@@ -38,6 +38,7 @@ export const DeviceLinkingPanel: React.FC<DeviceLinkingPanelProps> = ({ userId }
   const [sourceVerified, setSourceVerified] = useState(false);
   const [scannerCodeConfirmed, setScannerCodeConfirmed] = useState(false);
   const [registeredDevices, setRegisteredDevices] = useState<Array<{ id: string; deviceKeys?: Record<string, unknown>; revokedAt?: unknown; updatedAt?: unknown }>>([]);
+  const [pendingRevocationId, setPendingRevocationId] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
@@ -124,6 +125,7 @@ export const DeviceLinkingPanel: React.FC<DeviceLinkingPanelProps> = ({ userId }
 
   const revokeDevice = (targetDeviceId: string) => run(async () => {
     await deviceRegistryService.revokeDevice(userId, targetDeviceId);
+    setPendingRevocationId(null);
     await refreshRegisteredDevices();
   });
 
@@ -391,6 +393,9 @@ export const DeviceLinkingPanel: React.FC<DeviceLinkingPanelProps> = ({ userId }
       )}
 
       <div className="space-y-3">
+        <p className="text-[10px] leading-relaxed text-gray-500">
+          Revoking a device blocks future key distribution and rotates room keys when active senders next send. It cannot erase messages or encryption keys already stored on that device.
+        </p>
         <div className="flex items-center justify-between">
           <h4 className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Registered devices</h4>
           <button disabled={busy} onClick={() => run(refreshRegisteredDevices)} className="text-[10px] text-indigo-300">Refresh</button>
@@ -413,9 +418,23 @@ export const DeviceLinkingPanel: React.FC<DeviceLinkingPanelProps> = ({ userId }
                 {revoked && <p className="text-[9px] text-red-300">Revoked</p>}
               </div>
               {!current && !revoked && (
-                <button disabled={busy} onClick={() => revokeDevice(device.id)} className="text-[10px] font-semibold text-red-300 disabled:opacity-50">
-                  Revoke
-                </button>
+                pendingRevocationId === device.id ? (
+                  <div className="flex flex-col items-end gap-2">
+                    <span className="text-[9px] text-red-300">This cannot be undone</span>
+                    <div className="flex items-center gap-2">
+                      <button disabled={busy} onClick={() => revokeDevice(device.id)} className="text-[10px] font-bold text-red-300 disabled:opacity-50">
+                        Confirm revoke
+                      </button>
+                      <button disabled={busy} onClick={() => setPendingRevocationId(null)} className="text-[10px] text-gray-400 disabled:opacity-50">
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button disabled={busy} onClick={() => setPendingRevocationId(device.id)} className="text-[10px] font-semibold text-red-300 disabled:opacity-50">
+                    Revoke
+                  </button>
+                )
               )}
             </div>
           );
