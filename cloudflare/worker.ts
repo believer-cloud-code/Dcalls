@@ -2,6 +2,7 @@ export interface Env {
   BUCKET: R2Bucket;
   PUBLIC_URL?: string;
   FIREBASE_WEB_API_KEY?: string;
+  FIREBASE_PROJECT_ID?: string;
   DEEPSEEK_API_KEY?: string;
   OPENROUTER_API_KEY?: string;
   GEMINI_API_KEY?: string;
@@ -90,7 +91,7 @@ async function requireFirebaseUser(request: Request, env: Env) {
     throw new HttpError(401, 'Firebase user lookup failed.');
   }
 
-  return { uid };
+  return { uid, token };
 }
 
 async function callDeepseek(
@@ -556,8 +557,9 @@ async function handleUploadRequest(
     });
   }
 
+  let authenticatedUser: { uid: string; token: string };
   try {
-    await requireFirebaseUser(request, env);
+    authenticatedUser = await requireFirebaseUser(request, env);
   } catch (err: any) {
     return Response.json(
       {
@@ -590,15 +592,56 @@ async function handleUploadRequest(
   }
 
   const key = path.replace(/^\/+/, '');
+  const match = /^chats\/([A-Za-z0-9_-]{1,128})\/media\/([A-Za-z0-9_-]{1,128}\.bin)$/.exec(key);
+  if (!match) {
+    return Response.json(
+      { error: 'Only encrypted chat attachment uploads are supported.' },
+      { status: 403, headers: applyCorsHeaders(request, env) }
+    );
+  }
+
+  if (file.type !== 'application/octet-stream' || file.size > 25 * 1024 * 1024) {
+    return Response.json(
+      { error: 'Chat attachments must be encrypted binary files no larger than 25 MB.' },
+      { status: 400, headers: applyCorsHeaders(request, env) }
+    );
+  }
+
+  const projectId = env.FIREBASE_PROJECT_ID;
+  if (!projectId) {
+    return Response.json(
+      { error: 'Worker config is missing FIREBASE_PROJECT_ID.' },
+      { status: 500, headers: applyCorsHeaders(request, env) }
+    );
+  }
+
+  const chatResponse = await fetch(
+    `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/databases/(default)/documents/chats/${encodeURIComponent(match[1])}`,
+    { headers: { Authorization: `Bearer ${authenticatedUser.token}` } },
+  );
+  if (!chatResponse.ok) {
+    return Response.json(
+      { error: 'Chat not found or access denied.' },
+      { status: 403, headers: applyCorsHeaders(request, env) }
+    );
+  }
+
+  const chatDocument = await chatResponse.json().catch(() => ({} as any));
+  const participants = chatDocument?.fields?.participants?.arrayValue?.values ?? [];
+  const isParticipant = participants.some((entry: any) => entry?.stringValue === authenticatedUser.uid);
+  if (!isParticipant) {
+    return Response.json(
+      { error: 'Only chat participants may upload attachments.' },
+      { status: 403, headers: applyCorsHeaders(request, env) }
+    );
+  }
 
   const object = await env.BUCKET.put(
     key,
     file,
     {
       httpMetadata: {
-        contentType:
-          file.type ||
-          'application/octet-stream',
+        contentType: 'application/octet-stream',
       },
     }
   );
