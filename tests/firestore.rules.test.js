@@ -105,6 +105,11 @@ test('device identities are owner-created and immutable; revocation is one-way',
   }));
 
   await assertFails(updateDoc(doc(alice(), 'users/alice/devices/alice-device'), {
+    revokedAt: null,
+    revokedBy: null,
+  }));
+
+  await assertFails(updateDoc(doc(alice(), 'users/alice/devices/alice-device'), {
     deviceKeys: { device_id: 'replacement-key' },
   }));
 
