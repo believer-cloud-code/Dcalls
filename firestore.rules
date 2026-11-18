@@ -102,14 +102,18 @@ service cloud.firestore {
             (resource.data.state == 'waiting' &&
               request.resource.data.state == 'joined' &&
               request.resource.data.joinedDeviceId is string &&
+              existsAfter(/databases/$(database)/documents/users/$(userId)/deviceLinkSessions/$(sessionId)/messages/join) &&
+              getAfter(/databases/$(database)/documents/users/$(userId)/deviceLinkSessions/$(sessionId)/messages/join).data.senderDeviceId == request.resource.data.joinedDeviceId &&
               !('verifiedAt' in request.resource.data)) ||
             (resource.data.state == 'joined' &&
               request.resource.data.state == 'accepted' &&
               request.resource.data.joinedDeviceId == resource.data.joinedDeviceId &&
+              existsAfter(/databases/$(database)/documents/users/$(userId)/deviceLinkSessions/$(sessionId)/messages/accept) &&
               !('verifiedAt' in request.resource.data)) ||
             (resource.data.state == 'accepted' &&
               request.resource.data.state == 'verified' &&
               request.resource.data.joinedDeviceId == resource.data.joinedDeviceId &&
+              existsAfter(/databases/$(database)/documents/users/$(userId)/deviceLinkSessions/$(sessionId)/messages/final) &&
               request.resource.data.verifiedAt == request.time) ||
             (resource.data.state in ['waiting', 'joined', 'accepted'] &&
               request.resource.data.state == 'cancelled' &&
