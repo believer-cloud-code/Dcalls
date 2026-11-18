@@ -39,7 +39,7 @@ const malloryStorage = () => env.authenticatedContext('mallory').storage();
 const bytes = new Uint8Array([1, 2, 3, 4]);
 
 test('chat participants can upload and read encrypted binary attachments', async () => {
-  const aliceFile = ref(aliceStorage(), 'chats/chat-1/media/attachment-participant.bin');
+  const aliceFile = ref(aliceStorage(), 'chats/chat-1/media/attachment-owner-check.bin');
   await assertSucceeds(uploadBytes(aliceFile, bytes, {
     contentType: 'application/octet-stream',
   }));
