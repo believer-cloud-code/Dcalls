@@ -11,6 +11,7 @@ import {
   setDoc,
   updateDoc,
   where,
+  writeBatch,
 } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 
@@ -365,7 +366,9 @@ export const deviceRegistryService = {
       throw new Error('A device owner, device and chat are required.');
     }
     const inboxRef = collection(db, 'users', ownerUid, 'devices', deviceId, 'inbox');
-    const snapshot = await getDocs(query(inboxRef, where('chatId', '==', chatId)));
+    // Keep each crypto-store import and Firestore acknowledgement below the
+    // 500-write batch ceiling. Remaining events stay queued for the next drain.
+    const snapshot = await getDocs(query(inboxRef, where('chatId', '==', chatId), limit(450)));
     return snapshot.docs
       .map((eventDoc) => ({
         id: eventDoc.id,
@@ -387,6 +390,17 @@ export const deviceRegistryService = {
 
   async deleteDeviceInboxEvent(ownerUid: string, deviceId: string, eventId: string): Promise<void> {
     await deleteDoc(doc(db, 'users', ownerUid, 'devices', deviceId, 'inbox', eventId));
+  },
+
+  async deleteDeviceInboxEvents(ownerUid: string, deviceId: string, eventIds: string[]): Promise<void> {
+    if (!ownerUid || !deviceId) throw new Error('A device owner and device are required.');
+    if (eventIds.length > 450) throw new Error('An inbox acknowledgement batch cannot exceed 450 events.');
+    if (!eventIds.length) return;
+    const batch = writeBatch(db);
+    for (const eventId of eventIds) {
+      batch.delete(doc(db, 'users', ownerUid, 'devices', deviceId, 'inbox', eventId));
+    }
+    await batch.commit();
   },
 
 
