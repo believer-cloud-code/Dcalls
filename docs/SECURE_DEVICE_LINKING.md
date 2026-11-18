@@ -70,6 +70,8 @@ A successful HPKE channel proves that both endpoints share a secret; the users m
 
 Revocation is a server-side cutoff for future device-key discovery, one-time/fallback-key claims, inbox delivery, and QR-link session activity. Firestore rules also freeze a revoked device record and reject new one-time-key publication beneath it.
 
+When a chat sender next prepares an encrypted message, Dcalls compares the active device set for every chat participant with the last device set used by that sender for the chat. If it changed (including a device being revoked), the sender invalidates its current outbound Megolm group session and shares a fresh room key with the currently active devices before encrypting the next message. This is a sender-side, next-send rotation; it is not an instantaneous remote wipe, and each sender rotates its own outbound session when it next sends.
+
 Revocation is not remote key erasure. A device may retain Olm/Megolm and cross-signing secrets already stored locally, as well as ciphertext it has already received. It may therefore still decrypt content for which it already has the room key.
 
 There is also an account/device identity boundary: ordinary chat writes are authorized by Firebase account UID and chat membership, not by a cryptographically attested installation identity. A revoked installation that still has a valid Firebase account session is not independently distinguishable from another installation by those message rules. Consequently, do not describe device revocation as a guarantee that a compromised installation is unable to submit ordinary chat messages. Strong per-device enforcement would require a server-verifiable device credential and message authorization design, not just a client-supplied device ID.
