@@ -158,6 +158,17 @@ class QrDeviceLinkService {
     assertSignedIn(uid);
     if (!deviceId) throw new Error('A new device ID is required.');
     const payload = readQrPayload(qrText);
+    const existingScanner = this.scannerSessions.get(payload.sessionId);
+    if (existingScanner) {
+      if (
+        existingScanner.ownerUid === uid &&
+        existingScanner.deviceId === deviceId &&
+        existingScanner.expiresAt > Date.now()
+      ) {
+        return payload.sessionId;
+      }
+      throw new Error('This pairing session is already active on another device identity.');
+    }
     const ref = sessionRef(uid, payload.sessionId);
     const snapshot = await getDoc(ref);
     if (!snapshot.exists()) throw new Error('The device-link session does not exist for this account.');
@@ -187,32 +198,38 @@ class QrDeviceLinkService {
     );
 
     const joinRef = messageRef(uid, payload.sessionId, 'join');
-    await runTransaction(db, async (transaction) => {
-      const current = await transaction.get(ref);
-      const existingJoin = await transaction.get(joinRef);
-      const currentExpiry = (current.data()?.expiresAt as Timestamp | undefined)?.toMillis() ?? 0;
-      if (
-        !current.exists() ||
-        current.data()?.state !== 'waiting' ||
-        currentExpiry <= Date.now() ||
-        existingJoin.exists()
-      ) {
-        throw new Error('This pairing session was already used or has expired.');
-      }
-      transaction.set(joinRef, {
-        senderDeviceId: deviceId,
-        ciphertext: initial.message,
-        createdAt: serverTimestamp(),
-      });
-      transaction.update(ref, { state: 'joined', joinedDeviceId: deviceId, updatedAt: serverTimestamp() });
-    });
-
+    // Keep the HPKE sender state before the network write. If Firestore commits
+    // but its response is lost, the caller can safely retry in this runtime.
     this.scannerSessions.set(payload.sessionId, {
       ownerUid: uid,
       deviceId,
       expiresAt,
       sender: initial.channel,
     });
+    try {
+      await runTransaction(db, async (transaction) => {
+        const current = await transaction.get(ref);
+        const existingJoin = await transaction.get(joinRef);
+        const currentExpiry = (current.data()?.expiresAt as Timestamp | undefined)?.toMillis() ?? 0;
+        if (
+          !current.exists() ||
+          current.data()?.state !== 'waiting' ||
+          currentExpiry <= Date.now() ||
+          existingJoin.exists()
+        ) {
+          throw new Error('This pairing session was already used or has expired.');
+        }
+        transaction.set(joinRef, {
+          senderDeviceId: deviceId,
+          ciphertext: initial.message,
+          createdAt: serverTimestamp(),
+        });
+        transaction.update(ref, { state: 'joined', joinedDeviceId: deviceId, updatedAt: serverTimestamp() });
+      });
+    } catch (error) {
+      this.scannerSessions.delete(payload.sessionId);
+      throw error;
+    }
     return payload.sessionId;
   }
 
