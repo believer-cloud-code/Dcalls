@@ -9,7 +9,7 @@ import {
 import { doc, setDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getBytes } from 'firebase/storage';
 
-const PROJECT_ID = 'demo-dcalls-storage-rules';
+const PROJECT_ID = 'demo-dcalls-rules';
 let env;
 
 before(async () => {
