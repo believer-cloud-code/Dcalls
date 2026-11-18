@@ -349,6 +349,73 @@ test('revoking a joined device blocks QR pairing progression and key transfer', 
   }));
 });
 
+test('QR pairing state cannot advance without its matching handshake message', async () => {
+  const db = alice();
+  const sessionId = 'fedcba9876543210fedcba9876543210';
+  const sessionRef = doc(db, 'users/alice/deviceLinkSessions', sessionId);
+  const message = (name) => doc(db, 'users/alice/deviceLinkSessions', sessionId, 'messages', name);
+
+  await env.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), 'users/alice/devices/new-device'), {
+      deviceId: 'new-device',
+      deviceKeys: { device_id: 'new-device' },
+    });
+  });
+
+  await assertSucceeds(setDoc(sessionRef, {
+    ownerUid: 'alice',
+    sourceDeviceId: 'alice-device',
+    hpkePublicKey: 'A'.repeat(48),
+    state: 'waiting',
+    expiresAt: Timestamp.fromMillis(Date.now() + 4 * 60 * 1000),
+    createdAt: serverTimestamp(),
+  }));
+
+  await assertFails(updateDoc(sessionRef, {
+    state: 'joined',
+    joinedDeviceId: 'new-device',
+    updatedAt: serverTimestamp(),
+  }));
+
+  const joinBatch = writeBatch(db);
+  joinBatch.set(message('join'), {
+    senderDeviceId: 'new-device',
+    ciphertext: 'encrypted-join',
+    createdAt: serverTimestamp(),
+  });
+  joinBatch.update(sessionRef, {
+    state: 'joined',
+    joinedDeviceId: 'new-device',
+    updatedAt: serverTimestamp(),
+  });
+  await assertSucceeds(joinBatch.commit());
+
+  await assertFails(updateDoc(sessionRef, {
+    state: 'accepted',
+    joinedDeviceId: 'new-device',
+    updatedAt: serverTimestamp(),
+  }));
+
+  const acceptBatch = writeBatch(db);
+  acceptBatch.set(message('accept'), {
+    ciphertext: 'encrypted-accept',
+    createdAt: serverTimestamp(),
+  });
+  acceptBatch.update(sessionRef, {
+    state: 'accepted',
+    joinedDeviceId: 'new-device',
+    updatedAt: serverTimestamp(),
+  });
+  await assertSucceeds(acceptBatch.commit());
+
+  await assertFails(updateDoc(sessionRef, {
+    state: 'verified',
+    joinedDeviceId: 'new-device',
+    verifiedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  }));
+});
+
 test('QR pairing enforces the complete one-way handshake lifecycle', async () => {
   await env.withSecurityRulesDisabled(async (context) => {
     await setDoc(doc(context.firestore(), 'users/alice/devices/new-device'), {
