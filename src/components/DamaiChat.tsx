@@ -7,7 +7,6 @@ import { getWorkerBaseUrl } from '../services/cloudflareApi';
 import { ErrorBanner } from './ErrorBanner';
 import { FeedbackModal } from './FeedbackModal';
 import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, getDocs, limit, where, writeBatch, doc, updateDoc } from 'firebase/firestore';
-import { databaseService } from '../services/databaseService';
 import { db, auth } from '../firebase';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -371,20 +370,11 @@ export const DamaiChat: React.FC<{ onClose: () => void }> = ({ onClose }) => {
       // 3. Generate AI response (model may be slower in thinking mode)
       const modelName = isThinkingMode ? "gemini-1.5-pro" : "gemini-1.5-flash";
 
-      const parts: any[] = [];
-      if (userText) parts.push({ text: userText });
-      // Upload attached files and include URLs in prompt context
-      const fileUrls: string[] = [];
-      for (const file of currentFiles) {
-        try {
-          const path = `damai_files/${Date.now()}_${file.name}`;
-          const blob = new Blob([Uint8Array.from(atob(file.data), c => c.charCodeAt(0))]);
-          const url = await databaseService.uploadFile(path, blob as Blob);
-          fileUrls.push(`${file.name} (${file.type}): ${url}`);
-        } catch (e) {
-          console.error('Failed to upload attachment for AI context:', e);
-        }
-      }
+      // The current Worker AI endpoint accepts text only. Do not upload
+      // user files to the public R2 bucket or imply that Damai read them.
+      const fileUrls = currentFiles.map(
+        file => `${file.name} (${file.type}) — attached, but file-content analysis is not yet supported.`
+      );
 
       let serverAiSaved = false;
       let aiText = '';
