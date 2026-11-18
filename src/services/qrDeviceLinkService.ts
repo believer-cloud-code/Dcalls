@@ -34,6 +34,8 @@ interface SourceSession {
   recipient: HpkeRecipientChannel;
   joinRequest?: { deviceId: string; deviceName: string; channel: UnidirectionalRecipientChannel };
   channel?: EstablishedHpkeChannel;
+  acceptCiphertext?: string;
+  finalAckVerified?: boolean;
   secretsCiphertext?: string;
 }
 
@@ -43,6 +45,7 @@ interface ScannerSession {
   expiresAt: number;
   sender: UnidirectionalSenderChannel;
   channel?: EstablishedHpkeChannel;
+  finalCiphertext?: string;
   receivedSecretsBundle?: string;
   secretsAckCiphertext?: string;
 }
@@ -268,32 +271,43 @@ class QrDeviceLinkService {
       throw new Error('The pairing request changed before approval.');
     }
 
-    const accepted = source.joinRequest.channel.establishBidirectionalChannel(
-      JSON.stringify({ protocol: PROTOCOL, version: VERSION, type: 'accept', nonce: randomHex() }),
-      aadFor(sessionId),
-    );
-    source.channel = accepted.channel;
+    if (!source.channel || !source.acceptCiphertext) {
+      const accepted = source.joinRequest.channel.establishBidirectionalChannel(
+        JSON.stringify({ protocol: PROTOCOL, version: VERSION, type: 'accept', nonce: randomHex() }),
+        aadFor(sessionId),
+      );
+      source.channel = accepted.channel;
+      source.acceptCiphertext = accepted.initialResponse;
+    }
+    const acceptCiphertext = source.acceptCiphertext;
     await runTransaction(db, async (transaction) => {
       const ref = sessionRef(uid, sessionId);
       const current = await transaction.get(ref);
       const acceptRef = messageRef(uid, sessionId, 'accept');
       const existingAccept = await transaction.get(acceptRef);
-      if (
-        !current.exists() ||
-        current.data().state !== 'joined' ||
-        current.data().joinedDeviceId !== source.joinRequest?.deviceId ||
-        existingAccept.exists()
-      ) {
-        throw new Error('The pairing session changed or was already accepted.');
+      if (!current.exists() || current.data().joinedDeviceId !== source.joinRequest?.deviceId) {
+        throw new Error('The pairing session changed before approval.');
+      }
+      if (existingAccept.exists()) {
+        if (
+          existingAccept.data().ciphertext !== acceptCiphertext ||
+          !['accepted', 'verified'].includes(String(current.data().state))
+        ) {
+          throw new Error('A different approval already exists for this pairing session.');
+        }
+        return;
+      }
+      if (current.data().state !== 'joined') {
+        throw new Error('The pairing session is no longer awaiting approval.');
       }
       transaction.set(acceptRef, {
-        ciphertext: accepted.initialResponse,
+        ciphertext: acceptCiphertext,
         createdAt: serverTimestamp(),
       });
       transaction.update(ref, { state: 'accepted', updatedAt: serverTimestamp() });
     });
     source.joinRequest = undefined;
-    return checkCode(accepted.channel);
+    return checkCode(source.channel);
   }
 
   async completeJoin(uid: string, sessionId: string): Promise<string> {
@@ -308,28 +322,44 @@ class QrDeviceLinkService {
       throw new Error('The existing device has not approved this pairing yet.');
     }
 
-    const result = scanner.sender.establishBidirectionalChannel(
-      String(accepted.data().ciphertext ?? ''),
-      aadFor(sessionId),
-    );
-    const acceptedMessage = JSON.parse(result.initialResponse) as Record<string, unknown>;
-    if (
-      acceptedMessage.protocol !== PROTOCOL ||
-      acceptedMessage.version !== VERSION ||
-      acceptedMessage.type !== 'accept'
-    ) {
-      throw new Error('The existing device returned an invalid HPKE handshake response.');
+    if (!scanner.channel || !scanner.finalCiphertext) {
+      const result = scanner.sender.establishBidirectionalChannel(
+        String(accepted.data().ciphertext ?? ''),
+        aadFor(sessionId),
+      );
+      const acceptedMessage = JSON.parse(result.initialResponse) as Record<string, unknown>;
+      if (
+        acceptedMessage.protocol !== PROTOCOL ||
+        acceptedMessage.version !== VERSION ||
+        acceptedMessage.type !== 'accept'
+      ) {
+        throw new Error('The existing device returned an invalid HPKE handshake response.');
+      }
+      scanner.channel = result.channel;
+      scanner.finalCiphertext = result.channel.seal(
+        JSON.stringify({ protocol: PROTOCOL, version: VERSION, type: 'final-ack' }),
+        aadFor(sessionId),
+      );
     }
-    scanner.channel = result.channel;
-    const finalCiphertext = result.channel.seal(
-      JSON.stringify({ protocol: PROTOCOL, version: VERSION, type: 'final-ack' }),
-      aadFor(sessionId),
-    );
-    await setDoc(messageRef(uid, sessionId, 'final'), {
-      ciphertext: finalCiphertext,
-      createdAt: serverTimestamp(),
+    const finalRef = messageRef(uid, sessionId, 'final');
+    await runTransaction(db, async (transaction) => {
+      const current = await transaction.get(sessionRef(uid, sessionId));
+      const existing = await transaction.get(finalRef);
+      if (!current.exists() || !['accepted', 'verified'].includes(String(current.data().state))) {
+        throw new Error('The pairing session is no longer awaiting final confirmation.');
+      }
+      if (existing.exists()) {
+        if (existing.data().ciphertext !== scanner.finalCiphertext) {
+          throw new Error('A different final acknowledgement already exists.');
+        }
+        return;
+      }
+      transaction.set(finalRef, {
+        ciphertext: scanner.finalCiphertext,
+        createdAt: serverTimestamp(),
+      });
     });
-    return checkCode(result.channel);
+    return checkCode(scanner.channel);
   }
 
   async verifySourceCompletion(uid: string, sessionId: string): Promise<string> {
@@ -339,25 +369,31 @@ class QrDeviceLinkService {
       throw new Error('The HPKE channel has not been established on this device.');
     }
     assertNotExpired(source.expiresAt);
-    const final = await getDoc(messageRef(uid, sessionId, 'final'));
-    if (!final.exists()) throw new Error('The new device has not completed the handshake.');
-
-    const plaintext = source.channel.open(String(final.data().ciphertext ?? ''), aadFor(sessionId));
-    const message = JSON.parse(plaintext) as Record<string, unknown>;
-    if (
-      message.protocol !== PROTOCOL ||
-      message.version !== VERSION ||
-      message.type !== 'final-ack'
-    ) {
-      throw new Error('The final pairing acknowledgement is invalid.');
+    if (!source.finalAckVerified) {
+      const final = await getDoc(messageRef(uid, sessionId, 'final'));
+      if (!final.exists()) throw new Error('The new device has not completed the handshake.');
+      const plaintext = source.channel.open(String(final.data().ciphertext ?? ''), aadFor(sessionId));
+      const message = JSON.parse(plaintext) as Record<string, unknown>;
+      if (
+        message.protocol !== PROTOCOL ||
+        message.version !== VERSION ||
+        message.type !== 'final-ack'
+      ) {
+        throw new Error('The final pairing acknowledgement is invalid.');
+      }
+      // Cache successful HPKE opening before the Firestore write. If the
+      // write outcome is ambiguous, a retry must not open the same message twice.
+      source.finalAckVerified = true;
     }
     await runTransaction(db, async (transaction) => {
       const ref = sessionRef(uid, sessionId);
       const current = await transaction.get(ref);
-      if (!current.exists() || current.data().state !== 'accepted') {
+      if (!current.exists() || !['accepted', 'verified'].includes(String(current.data().state))) {
         throw new Error('The pairing session is no longer active.');
       }
-      transaction.update(ref, { state: 'verified', verifiedAt: serverTimestamp(), updatedAt: serverTimestamp() });
+      if (current.data().state === 'accepted') {
+        transaction.update(ref, { state: 'verified', verifiedAt: serverTimestamp(), updatedAt: serverTimestamp() });
+      }
     });
     return checkCode(source.channel);
   }
