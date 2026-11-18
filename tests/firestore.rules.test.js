@@ -12,6 +12,7 @@ import {
   setDoc,
   updateDoc,
   deleteDoc,
+  writeBatch,
   serverTimestamp,
   Timestamp,
 } from 'firebase/firestore';
