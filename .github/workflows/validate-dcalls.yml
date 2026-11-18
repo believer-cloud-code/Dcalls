@@ -28,7 +28,9 @@ jobs:
       - name: Install Firebase rules test tools
         run: npm install --no-save --package-lock=false @firebase/rules-unit-testing firebase-tools
       - name: Test Firestore security rules in emulator
-        run: npx firebase emulators:exec --only firestore,storage --project demo-dcalls-rules "node --test tests/firestore.rules.test.js tests/storage.rules.test.js"
+        run: npx firebase emulators:exec --only firestore --project demo-dcalls-rules "node --test tests/firestore.rules.test.js"
+      - name: Test Storage security rules in emulator
+        run: npx firebase emulators:exec --only firestore,storage --project demo-dcalls-rules "node --test tests/storage.rules.test.js"
       - name: Type-check
         run: npm run lint
       - name: Build web application
