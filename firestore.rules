@@ -78,6 +78,13 @@ service cloud.firestore {
         allow update: if isOwner(userId) &&
           exists(/databases/$(database)/documents/users/$(userId)/devices/$(resource.data.sourceDeviceId)) &&
           !('revokedAt' in get(/databases/$(database)/documents/users/$(userId)/devices/$(resource.data.sourceDeviceId)).data) &&
+          (
+            !('joinedDeviceId' in resource.data) ||
+            (
+              exists(/databases/$(database)/documents/users/$(userId)/devices/$(resource.data.joinedDeviceId)) &&
+              !('revokedAt' in get(/databases/$(database)/documents/users/$(userId)/devices/$(resource.data.joinedDeviceId)).data)
+            )
+          ) &&
           request.resource.data.ownerUid == resource.data.ownerUid &&
           request.resource.data.sourceDeviceId == resource.data.sourceDeviceId &&
           request.resource.data.hpkePublicKey == resource.data.hpkePublicKey &&
@@ -133,11 +140,15 @@ service cloud.firestore {
                 get(/databases/$(database)/documents/users/$(userId)/deviceLinkSessions/$(sessionId)).data.state == 'joined' &&
                 getAfter(/databases/$(database)/documents/users/$(userId)/deviceLinkSessions/$(sessionId)).data.state == 'accepted') ||
               (messageId == 'final' &&
-                get(/databases/$(database)/documents/users/$(userId)/deviceLinkSessions/$(sessionId)).data.state == 'accepted') ||
+                get(/databases/$(database)/documents/users/$(userId)/deviceLinkSessions/$(sessionId)).data.state == 'accepted' &&
+                exists(/databases/$(database)/documents/users/$(userId)/devices/$(get(/databases/$(database)/documents/users/$(userId)/deviceLinkSessions/$(sessionId)).data.joinedDeviceId)) &&
+                !('revokedAt' in get(/databases/$(database)/documents/users/$(userId)/devices/$(get(/databases/$(database)/documents/users/$(userId)/deviceLinkSessions/$(sessionId)).data.joinedDeviceId)).data)) ||
               (messageId == 'secrets' &&
                 get(/databases/$(database)/documents/users/$(userId)/deviceLinkSessions/$(sessionId)).data.state == 'verified' &&
                 request.resource.data.senderDeviceId == get(/databases/$(database)/documents/users/$(userId)/deviceLinkSessions/$(sessionId)).data.sourceDeviceId &&
-                !('revokedAt' in get(/databases/$(database)/documents/users/$(userId)/devices/$(request.resource.data.senderDeviceId)).data)) ||
+                !('revokedAt' in get(/databases/$(database)/documents/users/$(userId)/devices/$(request.resource.data.senderDeviceId)).data) &&
+                exists(/databases/$(database)/documents/users/$(userId)/devices/$(get(/databases/$(database)/documents/users/$(userId)/deviceLinkSessions/$(sessionId)).data.joinedDeviceId)) &&
+                !('revokedAt' in get(/databases/$(database)/documents/users/$(userId)/devices/$(get(/databases/$(database)/documents/users/$(userId)/deviceLinkSessions/$(sessionId)).data.joinedDeviceId)).data)) ||
               (messageId == 'secretsAck' &&
                 get(/databases/$(database)/documents/users/$(userId)/deviceLinkSessions/$(sessionId)).data.state == 'verified' &&
                 request.resource.data.senderDeviceId == get(/databases/$(database)/documents/users/$(userId)/deviceLinkSessions/$(sessionId)).data.joinedDeviceId &&
