@@ -65,3 +65,11 @@ A successful HPKE channel proves that both endpoints share a secret; the users m
 8. Firestore rules are emulator-tested before deployment.
 9. CI passes type-check and production build; real two-device tests are still required.
 10. Revoked devices are not returned by active-device key queries and cannot claim prekeys or receive new device-inbox events.
+
+## Revocation boundary
+
+Revocation is a server-side cutoff for future device-key discovery, one-time/fallback-key claims, inbox delivery, and QR-link session activity. Firestore rules also freeze a revoked device record and reject new one-time-key publication beneath it.
+
+Revocation is not remote key erasure. A device may retain Olm/Megolm and cross-signing secrets already stored locally, as well as ciphertext it has already received. It may therefore still decrypt content for which it already has the room key.
+
+There is also an account/device identity boundary: ordinary chat writes are authorized by Firebase account UID and chat membership, not by a cryptographically attested installation identity. A revoked installation that still has a valid Firebase account session is not independently distinguishable from another installation by those message rules. Consequently, do not describe device revocation as a guarantee that a compromised installation is unable to submit ordinary chat messages. Strong per-device enforcement would require a server-verifiable device credential and message authorization design, not just a client-supplied device ID.
