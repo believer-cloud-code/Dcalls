@@ -50,6 +50,7 @@ Set these in Cloudflare after deployment if needed:
 - The Worker upload endpoint accepts only `chats/{chatId}/media/{fileId}.bin` objects.
 - Uploads require a valid Firebase ID token, membership in the referenced Firestore chat, an `application/octet-stream` content type, and a maximum size of 25 MiB.
 - The Worker requires `FIREBASE_PROJECT_ID` to verify chat membership through the authenticated Firestore REST API. It is set in `wrangler.toml`.
+- R2 uploads use an atomic create-only condition. An existing object key cannot be overwritten; the Worker returns HTTP 409 and the client must use a new file ID.
 - Chat attachment bytes are encrypted by the client before upload. The configured R2 public URL can expose the ciphertext object, but it must never be used for plaintext or unencrypted user files.
 - Damai's current Worker AI endpoint accepts text only. The app therefore no longer uploads Damai attachments to public R2 or tells the model that it can read those files. File-content analysis needs a separate authenticated/private processing implementation.
 - Firebase Storage fallback rules are maintained in the repository's `storage.rules` and tested with the Storage emulator.
