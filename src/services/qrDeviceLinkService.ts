@@ -35,6 +35,7 @@ interface SourceSession {
   joinRequest?: { deviceId: string; deviceName: string; channel: UnidirectionalRecipientChannel };
   channel?: EstablishedHpkeChannel;
   acceptCiphertext?: string;
+  acceptedDeviceId?: string;
   finalAckVerified?: boolean;
   secretsCiphertext?: string;
 }
@@ -257,7 +258,7 @@ class QrDeviceLinkService {
   async acceptJoin(uid: string, sessionId: string): Promise<string> {
     assertSignedIn(uid);
     const source = this.sourceSessions.get(sessionId);
-    if (!source || source.ownerUid !== uid || !source.joinRequest) {
+    if (!source || source.ownerUid !== uid || (!source.joinRequest && (!source.channel || !source.acceptCiphertext || !source.acceptedDeviceId))) {
       throw new Error('Inspect the new-device request before approving it.');
     }
     assertNotExpired(source.expiresAt);
@@ -272,12 +273,14 @@ class QrDeviceLinkService {
     }
 
     if (!source.channel || !source.acceptCiphertext) {
+      if (!source.joinRequest) throw new Error('The inspected pairing request is no longer available.');
       const accepted = source.joinRequest.channel.establishBidirectionalChannel(
         JSON.stringify({ protocol: PROTOCOL, version: VERSION, type: 'accept', nonce: randomHex() }),
         aadFor(sessionId),
       );
       source.channel = accepted.channel;
       source.acceptCiphertext = accepted.initialResponse;
+      source.acceptedDeviceId = source.joinRequest.deviceId;
     }
     const acceptCiphertext = source.acceptCiphertext;
     await runTransaction(db, async (transaction) => {
@@ -285,7 +288,7 @@ class QrDeviceLinkService {
       const current = await transaction.get(ref);
       const acceptRef = messageRef(uid, sessionId, 'accept');
       const existingAccept = await transaction.get(acceptRef);
-      if (!current.exists() || current.data().joinedDeviceId !== source.joinRequest?.deviceId) {
+      if (!current.exists() || current.data().joinedDeviceId !== source.acceptedDeviceId) {
         throw new Error('The pairing session changed before approval.');
       }
       if (existingAccept.exists()) {
