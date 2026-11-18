@@ -407,6 +407,30 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     return () => unsubscribe();
   }, [chatId, propContactName, propContactPhoto, propContactId]);
 
+  // Drain encrypted device-to-device events when this conversation opens
+  // and when the app returns to the foreground. This also covers chats with
+  // no newly rendered message bubble to trigger a decrypt operation.
+  useEffect(() => {
+    if (!chatId) return;
+
+    const drainInbox = () => {
+      if (document.visibilityState === 'hidden' || !auth.currentUser) return;
+      void matrixCryptoService.processPendingDeviceEvents(auth.currentUser.uid, chatId)
+        .catch((error) => {
+          console.warn('Could not process pending encrypted device events:', error);
+        });
+    };
+
+    drainInbox();
+    window.addEventListener('focus', drainInbox);
+    document.addEventListener('visibilitychange', drainInbox);
+
+    return () => {
+      window.removeEventListener('focus', drainInbox);
+      document.removeEventListener('visibilitychange', drainInbox);
+    };
+  }, [chatId]);
+
   // Mark messages as read (idempotent + deduplicated)
   useEffect(() => {
     if (!chatId || !auth.currentUser || messages.length === 0) return;
