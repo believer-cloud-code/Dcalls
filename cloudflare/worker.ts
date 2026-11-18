@@ -636,15 +636,25 @@ async function handleUploadRequest(
     );
   }
 
+  // Attachment object keys are immutable: retries or malicious requests
+  // must not replace ciphertext already referenced by a chat message.
   const object = await env.BUCKET.put(
     key,
     file,
     {
+      onlyIf: { etagDoesNotMatch: '*' },
       httpMetadata: {
         contentType: 'application/octet-stream',
       },
     }
   );
+
+  if (!object) {
+    return Response.json(
+      { error: 'An attachment already exists at this path; choose a new file ID.' },
+      { status: 409, headers: applyCorsHeaders(request, env) }
+    );
+  }
 
   const publicUrl = env.PUBLIC_URL
     ? `${env.PUBLIC_URL.replace(/\/+$/, '')}/${key}`
