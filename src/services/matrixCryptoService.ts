@@ -501,6 +501,7 @@ class MatrixCryptoService {
         await deviceRegistryService.sendEncryptedDeviceEvent(
           recipientUid,
           recipientDeviceId,
+          senderDeviceId,
           eventId,
           chatId,
           JSON.stringify(event),
