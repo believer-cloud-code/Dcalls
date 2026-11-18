@@ -264,10 +264,12 @@ class QrDeviceLinkService {
     assertNotExpired(source.expiresAt);
 
     const parent = await getDoc(sessionRef(uid, sessionId));
+    const expectedDeviceId = source.acceptedDeviceId ?? source.joinRequest?.deviceId;
     if (
       !parent.exists() ||
-      parent.data().state !== 'joined' ||
-      parent.data().joinedDeviceId !== source.joinRequest.deviceId
+      !['joined', 'accepted', 'verified'].includes(String(parent.data().state)) ||
+      !expectedDeviceId ||
+      parent.data().joinedDeviceId !== expectedDeviceId
     ) {
       throw new Error('The pairing request changed before approval.');
     }
@@ -321,7 +323,7 @@ class QrDeviceLinkService {
 
     const parent = await getDoc(sessionRef(uid, sessionId));
     const accepted = await getDoc(messageRef(uid, sessionId, 'accept'));
-    if (!parent.exists() || parent.data().state !== 'accepted' || !accepted.exists()) {
+    if (!parent.exists() || !['accepted', 'verified'].includes(String(parent.data().state)) || !accepted.exists()) {
       throw new Error('The existing device has not approved this pairing yet.');
     }
 
