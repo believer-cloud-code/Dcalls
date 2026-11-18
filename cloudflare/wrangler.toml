@@ -4,6 +4,7 @@ compatibility_date = "2025-08-28"
 
 [vars]
 PUBLIC_URL = "https://pub-b570560755b64f58b4670bfa5870cc48.r2.dev"
+FIREBASE_PROJECT_ID = "dcalls-2d01d"
 ALLOWED_ORIGINS = "http://localhost:3000,https://localhost,capacitor://localhost,https://dcalls-2d01d.web.app,https://dcalls.com,https://www.dcalls.com"
 
 [[r2_buckets]]
