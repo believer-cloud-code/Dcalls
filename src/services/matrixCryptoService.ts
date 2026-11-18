@@ -732,81 +732,103 @@ class MatrixCryptoService {
 
     const machine = await this.getMachine(firebaseUid);
     const deviceId = await this.getDeviceId(firebaseUid);
-    const inbox = await deviceRegistryService.listPendingDeviceEvents(firebaseUid, deviceId, chatId);
-
     const matrixToFirebaseUid = new Map<string, string>();
     matrixToFirebaseUid.set(await stableMatrixUserId(firebaseUid), firebaseUid);
-    const events: Record<string, unknown>[] = [];
 
-    for (const item of inbox) {
-      const senderUid = String(item.senderUid ?? '');
-      if (!senderUid || typeof item.payload !== 'string') {
-        throw new Error('An encrypted device inbox record is missing its sender or payload.');
+    const batchSize = 450;
+    const maxBatches = 8;
+    let totalProcessed = 0;
+
+    // Drain a bounded number of batches per invocation. This avoids leaving
+    // a large offline backlog dependent on a later, unrelated chat action.
+    for (let batchNumber = 0; batchNumber < maxBatches; batchNumber += 1) {
+      const inbox = await deviceRegistryService.listPendingDeviceEvents(
+        firebaseUid,
+        deviceId,
+        chatId,
+      );
+      if (!inbox.length) return totalProcessed;
+
+      const events: Record<string, unknown>[] = [];
+      for (const item of inbox) {
+        const senderUid = String(item.senderUid ?? '');
+        if (!senderUid || typeof item.payload !== 'string') {
+          throw new Error('An encrypted device inbox record is missing its sender or payload.');
+        }
+
+        const event = JSON.parse(item.payload) as Record<string, unknown>;
+        const expectedSender = await stableMatrixUserId(senderUid);
+        if (event.sender !== expectedSender ||
+            typeof event.type !== 'string' ||
+            !event.content ||
+            typeof event.content !== 'object') {
+          throw new Error('An encrypted device event failed sender or envelope validation.');
+        }
+
+        matrixToFirebaseUid.set(expectedSender, senderUid);
+        events.push(event);
       }
 
-      const event = JSON.parse(item.payload) as Record<string, unknown>;
-      const expectedSender = await stableMatrixUserId(senderUid);
-      if (event.sender !== expectedSender ||
-          typeof event.type !== 'string' ||
-          !event.content ||
-          typeof event.content !== 'object') {
-        throw new Error('An encrypted device event failed sender or envelope validation.');
-      }
-
-      matrixToFirebaseUid.set(expectedSender, senderUid);
-      events.push(event);
-    }
-
-    // Load the sender device identities before accepting their to-device
-    // events into the local Olm state machine.
-    const senderUserIds = await Promise.all(
-      [...matrixToFirebaseUid.entries()]
+      // Load sender device identities before accepting their to-device events.
+      const senderUserIds = [...matrixToFirebaseUid.entries()]
         .filter(([matrixUserId, uid]) => uid !== firebaseUid)
-        .map(([matrixUserId]) => new UserId(matrixUserId)),
-    );
-    if (senderUserIds.length) {
-      const queryRequest = machine.queryKeysForUsers(senderUserIds);
-      if (!(queryRequest instanceof KeysQueryRequest)) {
-        throw new Error('The Matrix SDK did not produce a sender-device query request.');
+        .map(([matrixUserId]) => new UserId(matrixUserId));
+      if (senderUserIds.length) {
+        const queryRequest = machine.queryKeysForUsers(senderUserIds);
+        if (!(queryRequest instanceof KeysQueryRequest)) {
+          throw new Error('The Matrix SDK did not produce a sender-device query request.');
+        }
+        await this.processKeysQuery(machine, queryRequest, matrixToFirebaseUid);
       }
-      await this.processKeysQuery(machine, queryRequest, matrixToFirebaseUid);
+
+      // MSC4186 avoids falsely telling the SDK that the server has zero
+      // one-time keys remaining while processing these device events.
+      await machine.receiveSyncChangesMsc4186(
+        JSON.stringify(events),
+        new DeviceLists([], []),
+        await deviceRegistryService.getOneTimeKeyCounts(firebaseUid, deviceId)
+          .then((counts) => new Map(Object.entries(counts))),
+        await deviceRegistryService.getUnusedFallbackKeyTypes(firebaseUid, deviceId)
+          .then((types) => new Set(types)),
+        undefined,
+      );
+
+      // Acknowledge only after the crypto store accepts the complete batch.
+      // The Firestore batch is atomic: on failure every event remains queued.
+      await deviceRegistryService.deleteDeviceInboxEvents(
+        firebaseUid,
+        deviceId,
+        inbox.map((item) => item.id),
+      );
+      totalProcessed += inbox.length;
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('dcalls:matrix-keys-updated', { detail: { chatId } }));
+      }
+
+      await this.drainOutgoingRequestsUnlocked(
+        machine,
+        firebaseUid,
+        deviceId,
+        matrixToFirebaseUid,
+        chatId,
+      );
+
+      if (inbox.length < batchSize) return totalProcessed;
     }
 
-    // MSC4186 semantics let us process device events without falsely telling
-    // the SDK that the server has zero one-time keys remaining.
-    await machine.receiveSyncChangesMsc4186(
-      JSON.stringify(events),
-      new DeviceLists([], []),
-      await deviceRegistryService.getOneTimeKeyCounts(firebaseUid, deviceId).then((counts) => new Map(Object.entries(counts))),
-      await deviceRegistryService.getUnusedFallbackKeyTypes(firebaseUid, deviceId).then((types) => new Set(types)),
-      undefined,
-    );
-
-    // Acknowledge the accepted batch atomically. If Firestore rejects the
-    // commit, every inbox record remains available for a safe retry.
-    await deviceRegistryService.deleteDeviceInboxEvents(
+    // The per-call cap prevents an unbounded foreground operation. Report
+    // remaining work so the caller can retry instead of silently implying
+    // that the queue is empty.
+    const remaining = await deviceRegistryService.listPendingDeviceEvents(
       firebaseUid,
       deviceId,
-      inbox.map((item) => item.id),
-    );
-
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('dcalls:matrix-keys-updated', { detail: { chatId } }));
-    }
-
-    // Drain protocol work to quiescence. Processing a keys query can create
-    // a keys claim, and processing a claim can create to-device messages.
-    // A single outgoingRequests() snapshot would leave those follow-up requests
-    // queued until some unrelated future chat action.
-    await this.drainOutgoingRequestsUnlocked(
-      machine,
-      firebaseUid,
-      deviceId,
-      matrixToFirebaseUid,
       chatId,
     );
-
-    return inbox.length;
+    if (remaining.length) {
+      throw new Error('The device inbox still has pending events after eight batches. Retry to continue draining the queue.');
+    }
+    return totalProcessed;
   }
 
   /**
