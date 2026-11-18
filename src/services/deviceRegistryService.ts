@@ -319,16 +319,34 @@ export const deviceRegistryService = {
       throw new Error('The recipient device is unavailable or has been revoked.');
     }
 
-    await setDoc(
-      doc(db, 'users', recipientUid, 'devices', recipientDeviceId, 'inbox', eventId),
-      {
-        senderUid,
-        chatId,
-        payload,
-        createdAt: serverTimestamp(),
-        protocol: 'matrix-olm-megolm',
-      },
-    );
+    const inboxRef = doc(db, 'users', recipientUid, 'devices', recipientDeviceId, 'inbox', eventId);
+    const eventData = {
+      senderUid,
+      chatId,
+      payload,
+      createdAt: serverTimestamp(),
+      protocol: 'matrix-olm-megolm',
+    };
+
+    try {
+      await setDoc(inboxRef, eventData);
+    } catch (writeError) {
+      // Matrix request IDs are stable across retries. A previous attempt may
+      // have created this event but failed before the SDK acknowledged the
+      // outgoing request. Treat only the exact same immutable event as success.
+      const existing = await getDoc(inboxRef);
+      if (!existing.exists()) throw writeError;
+
+      const stored = existing.data();
+      if (
+        stored.senderUid !== senderUid ||
+        stored.chatId !== chatId ||
+        stored.payload !== payload ||
+        stored.protocol !== 'matrix-olm-megolm'
+      ) {
+        throw new Error('An encrypted device event ID is already occupied by different event data.');
+      }
+    }
   },
 
 
