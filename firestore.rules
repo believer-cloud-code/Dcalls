@@ -232,12 +232,15 @@ service cloud.firestore {
           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             'updatedAt', 'fallbackKeys', 'protocol', 'protocolVersion', 'revokedAt', 'revokedBy'
           ]) &&
+          // Once revoked, the device record is immutable. Only an active
+          // device may update public key metadata or transition to revoked.
+          !('revokedAt' in resource.data) &&
           (
-            (!('revokedAt' in resource.data) && !('revokedAt' in request.resource.data)) ||
-            ('revokedAt' in resource.data && request.resource.data.revokedAt == resource.data.revokedAt && request.resource.data.revokedBy == resource.data.revokedBy) ||
-            (!('revokedAt' in resource.data) &&
+            !('revokedAt' in request.resource.data) ||
+            (
               request.resource.data.revokedAt == request.time &&
-              request.resource.data.revokedBy == request.auth.uid)
+              request.resource.data.revokedBy == request.auth.uid
+            )
           );
         // Preserve revoked device records so the same device ID cannot be
         // re-registered to bypass revocation.
@@ -246,6 +249,7 @@ service cloud.firestore {
         match /oneTimeKeys/{keyId} {
           allow read: if isAuthenticated();
           allow create: if isOwner(userId) &&
+            !('revokedAt' in get(/databases/$(database)/documents/users/$(userId)/devices/$(deviceId)).data) &&
             request.resource.data.key is map &&
             request.resource.data.keyId is string &&
             request.resource.data.keyDocumentId == keyId &&
