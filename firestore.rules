@@ -319,6 +319,9 @@ service cloud.firestore {
           allow create: if isAuthenticated() &&
             !('revokedAt' in get(/databases/$(database)/documents/users/$(userId)/devices/$(deviceId)).data) &&
             request.resource.data.senderUid == request.auth.uid &&
+            request.resource.data.senderDeviceId is string &&
+            exists(/databases/$(database)/documents/users/$(request.auth.uid)/devices/$(request.resource.data.senderDeviceId)) &&
+            !('revokedAt' in get(/databases/$(database)/documents/users/$(request.auth.uid)/devices/$(request.resource.data.senderDeviceId)).data) &&
             request.resource.data.payload is string &&
             request.resource.data.payload.size() <= 900000 &&
             (
