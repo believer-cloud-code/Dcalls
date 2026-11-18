@@ -208,9 +208,12 @@ test('QR pairing enforces the complete one-way handshake lifecycle', async () =>
     });
   });
 
+  // Reuse one Firestore instance: Firestore batches reject references created
+  // from a different client instance, even when both clients share auth.
+  const testDb = alice();
   const sessionId = 'abcdef0123456789abcdef0123456789';
-  const sessionRef = doc(alice(), 'users/alice/deviceLinkSessions', sessionId);
-  const messages = (name) => doc(alice(), 'users/alice/deviceLinkSessions', sessionId, 'messages', name);
+  const sessionRef = doc(testDb, 'users/alice/deviceLinkSessions', sessionId);
+  const messages = (name) => doc(testDb, 'users/alice/deviceLinkSessions', sessionId, 'messages', name);
 
   await assertSucceeds(setDoc(sessionRef, {
     ownerUid: 'alice',
@@ -222,7 +225,7 @@ test('QR pairing enforces the complete one-way handshake lifecycle', async () =>
   }));
 
   // A join message and the waiting -> joined transition must be atomic.
-  const joinBatch = writeBatch(alice());
+  const joinBatch = writeBatch(testDb);
   joinBatch.set(messages('join'), {
     senderDeviceId: 'new-device',
     ciphertext: 'encrypted-join',
@@ -236,7 +239,7 @@ test('QR pairing enforces the complete one-way handshake lifecycle', async () =>
   await assertSucceeds(joinBatch.commit());
 
   // The accept message must accompany joined -> accepted.
-  const acceptBatch = writeBatch(alice());
+  const acceptBatch = writeBatch(testDb);
   acceptBatch.set(messages('accept'), {
     ciphertext: 'encrypted-accept',
     createdAt: serverTimestamp(),
