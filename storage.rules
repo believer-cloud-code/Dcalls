@@ -1,9 +1,38 @@
 rules_version = '2';
 
 service firebase.storage {
-    match /b/{bucket}/o {
-        match /{allPaths=**} {
-            allow read, write: if true;
-        }
+  match /b/{bucket}/o {
+    function isAuthenticated() {
+      return request.auth != null;
     }
+
+    function isChatParticipant(chatId) {
+      return isAuthenticated() &&
+        firestore.exists(/databases/(default)/documents/chats/$(chatId)) &&
+        request.auth.uid in firestore.get(/databases/(default)/documents/chats/$(chatId)).data.participants;
+    }
+
+    // Human-chat attachments are encrypted on the client before upload.
+    // Only current chat participants may access the opaque binary objects.
+    match /chats/{chatId}/media/{fileName} {
+      allow read: if isChatParticipant(chatId);
+      allow create: if isChatParticipant(chatId) &&
+        request.resource.size <= 25 * 1024 * 1024 &&
+        request.resource.contentType == 'application/octet-stream';
+      allow update: if false;
+      allow delete: if isChatParticipant(chatId);
+    }
+
+    // Damai file uploads are intentionally denied for now. The current R2
+    // integration exposes public object URLs and the AI backend does not
+    // consume file contents; do not publish user files as public objects.
+    match /damai_files/{allPaths=**} {
+      allow read, write: if false;
+    }
+
+    // Deny all unrecognised storage paths by default.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
 }
