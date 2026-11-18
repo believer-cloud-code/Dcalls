@@ -238,6 +238,11 @@ test('device inbox rejects spoofed senders, nonparticipants and revoked recipien
     createdAt: serverTimestamp(), protocol: 'matrix-olm-megolm',
   }));
 
+  await assertSucceeds(setDoc(doc(bob(), 'users/alice/devices/alice-device/inbox/pending-before-revocation'), {
+    senderUid: 'bob', senderDeviceId: 'bob-device', chatId: 'chat-1', payload: 'ciphertext',
+    createdAt: serverTimestamp(), protocol: 'matrix-olm-megolm',
+  }));
+
   await assertFails(setDoc(doc(bob(), 'users/alice/devices/alice-device/inbox/spoofed-sender'), {
     senderUid: 'alice', senderDeviceId: 'bob-device', chatId: 'chat-1', payload: 'ciphertext',
     createdAt: serverTimestamp(), protocol: 'matrix-olm-megolm',
@@ -246,6 +251,9 @@ test('device inbox rejects spoofed senders, nonparticipants and revoked recipien
   await updateDoc(doc(alice(), 'users/alice/devices/alice-device'), {
     revokedAt: serverTimestamp(), revokedBy: 'alice',
   });
+
+  // Queued events are no longer readable by a revoked recipient device.
+  await assertFails(getDoc(doc(alice(), 'users/alice/devices/alice-device/inbox/pending-before-revocation')));
 
   await assertFails(setDoc(doc(bob(), 'users/alice/devices/alice-device/inbox/revoked-recipient'), {
     senderUid: 'bob', senderDeviceId: 'bob-device', chatId: 'chat-1', payload: 'ciphertext',
