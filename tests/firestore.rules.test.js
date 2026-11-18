@@ -244,6 +244,63 @@ test('device inbox rejects spoofed senders, nonparticipants and revoked recipien
 });
 
 
+test('revoking a joined device blocks QR pairing progression and key transfer', async () => {
+  const db = alice();
+  const joinedDeviceRef = doc(db, 'users/alice/devices/new-device');
+  await env.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), 'users/alice/devices/new-device'), {
+      deviceId: 'new-device',
+      deviceKeys: { device_id: 'new-device' },
+    });
+    await setDoc(doc(context.firestore(), 'users/alice/deviceLinkSessions/joined-session-000000000000'), {
+      ownerUid: 'alice',
+      sourceDeviceId: 'alice-device',
+      joinedDeviceId: 'new-device',
+      hpkePublicKey: 'A'.repeat(48),
+      state: 'joined',
+      expiresAt: Timestamp.fromMillis(Date.now() + 4 * 60 * 1000),
+    });
+    await setDoc(doc(context.firestore(), 'users/alice/deviceLinkSessions/accepted-session-00000000000'), {
+      ownerUid: 'alice',
+      sourceDeviceId: 'alice-device',
+      joinedDeviceId: 'new-device',
+      hpkePublicKey: 'A'.repeat(48),
+      state: 'accepted',
+      expiresAt: Timestamp.fromMillis(Date.now() + 4 * 60 * 1000),
+    });
+    await setDoc(doc(context.firestore(), 'users/alice/deviceLinkSessions/verified-session-0000000000'), {
+      ownerUid: 'alice',
+      sourceDeviceId: 'alice-device',
+      joinedDeviceId: 'new-device',
+      hpkePublicKey: 'A'.repeat(48),
+      state: 'verified',
+      expiresAt: Timestamp.fromMillis(Date.now() + 4 * 60 * 1000),
+    });
+  });
+
+  await assertSucceeds(updateDoc(joinedDeviceRef, {
+    revokedAt: serverTimestamp(),
+    revokedBy: 'alice',
+  }));
+
+  await assertFails(updateDoc(doc(db, 'users/alice/deviceLinkSessions/joined-session-000000000000'), {
+    state: 'accepted',
+    joinedDeviceId: 'new-device',
+    updatedAt: serverTimestamp(),
+  }));
+
+  await assertFails(setDoc(doc(db, 'users/alice/deviceLinkSessions/accepted-session-00000000000/messages/final'), {
+    ciphertext: 'encrypted-final',
+    createdAt: serverTimestamp(),
+  }));
+
+  await assertFails(setDoc(doc(db, 'users/alice/deviceLinkSessions/verified-session-0000000000/messages/secrets'), {
+    senderDeviceId: 'alice-device',
+    ciphertext: 'encrypted-secrets',
+    createdAt: serverTimestamp(),
+  }));
+});
+
 test('QR pairing enforces the complete one-way handshake lifecycle', async () => {
   await env.withSecurityRulesDisabled(async (context) => {
     await setDoc(doc(context.firestore(), 'users/alice/devices/new-device'), {
