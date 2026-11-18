@@ -97,6 +97,23 @@ test('device identities are owner-created and immutable; revocation is one-way',
   await assertFails(updateDoc(doc(alice(), 'users/alice/devices/alice-device'), {
     deviceKeys: { device_id: 'replacement-key' },
   }));
+
+  // Revocation must freeze all public key material, not just the identity key.
+  await assertFails(updateDoc(doc(alice(), 'users/alice/devices/alice-device'), {
+    fallbackKeys: {
+      'signed_curve25519:fallback-new': {
+        key: 'new-fallback-key', fallback: true, signatures: { valid: true },
+      },
+    },
+  }));
+
+  await assertFails(setDoc(doc(alice(), 'users/alice/devices/alice-device/oneTimeKeys/revoked-key'), {
+    key: { key: 'new-public-one-time-key' },
+    keyId: 'revoked-key',
+    keyDocumentId: 'revoked-key',
+    algorithm: 'signed_curve25519',
+    claimedBy: null,
+  }));
 });
 
 test('one-time keys can be claimed once by a participant in the shared chat', async () => {
