@@ -365,6 +365,7 @@ export const deviceRegistryService = {
   ): Promise<Array<{
     id: string;
     senderUid?: string;
+    senderDeviceId?: string;
     payload?: string;
     createdAt?: { toMillis?: () => number };
     ref: ReturnType<typeof doc>;
@@ -384,6 +385,7 @@ export const deviceRegistryService = {
       }) as {
         id: string;
         senderUid?: string;
+        senderDeviceId?: string;
         payload?: string;
         createdAt?: { toMillis?: () => number };
         ref: typeof eventDoc.ref;
