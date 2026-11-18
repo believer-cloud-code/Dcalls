@@ -591,7 +591,49 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
           const basePrompt = `Respond to the following request in an organized and visually attractive way using Markdown. Use dividers, bold headers, and lists where appropriate.\n\nRequest: `;
           let aiResponse = '';
           if (lowerText.includes('summarize')) {
-            const chatHistory = (await getDocs(query(collection(db, 'chats', chatId, 'messages'), orderBy('timestamp', 'asc')))).docs.map(d => d.data()).map((m: any) => `${m.senderId === auth.currentUser?.uid ? 'User' : 'Partner'}: ${m.text}`).join('\n');
+            const historySnapshot = await getDocs(
+              query(collection(db, 'chats', chatId, 'messages'), orderBy('timestamp', 'asc'))
+            );
+            const historyLines: string[] = [];
+
+            for (const historyDoc of historySnapshot.docs) {
+              const message = historyDoc.data() as any;
+              if (message.type !== 'text' || typeof message.text !== 'string') continue;
+
+              // Never send Matrix ciphertext (or an undecryptable payload) to Damai.
+              // AI-authored messages are already plaintext; human messages must
+              // be decrypted locally with the current device's Matrix account.
+              if (message.isAi === true || message.senderId === 'ai') {
+                historyLines.push(`Damai: ${message.text}`);
+                continue;
+              }
+
+              if (
+                message.isEncrypted !== true ||
+                message.encryptionMethod !== 'matrix-megolm' ||
+                typeof message.senderId !== 'string' ||
+                !auth.currentUser
+              ) {
+                continue;
+              }
+
+              const plaintext = await matrixCryptoService.decryptChatMessage(
+                auth.currentUser.uid,
+                chatId,
+                message.senderId,
+                historyDoc.id,
+                message.text,
+              );
+              historyLines.push(
+                `${message.senderId === auth.currentUser.uid ? 'User' : 'Partner'}: ${plaintext}`
+              );
+            }
+
+            if (historyLines.length === 0) {
+              throw new Error('There are no locally decryptable text messages to summarize.');
+            }
+
+            const chatHistory = historyLines.join('\n');
             aiResponse = (await getFastSummary(chatHistory)) || "I couldn't generate a summary at this time.";
           } else {
             aiResponse = (await getDamaiResponse(`${basePrompt}${text}`)) || "I'm here to help!";
