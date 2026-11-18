@@ -76,13 +76,18 @@ service cloud.firestore {
           request.resource.data.expiresAt <= request.time + duration.value(6, 'm') &&
           request.resource.data.createdAt == request.time;
         allow update: if isOwner(userId) &&
-          exists(/databases/$(database)/documents/users/$(userId)/devices/$(resource.data.sourceDeviceId)) &&
-          !('revokedAt' in get(/databases/$(database)/documents/users/$(userId)/devices/$(resource.data.sourceDeviceId)).data) &&
           (
-            !('joinedDeviceId' in resource.data) ||
+            request.resource.data.state == 'cancelled' ||
             (
-              exists(/databases/$(database)/documents/users/$(userId)/devices/$(resource.data.joinedDeviceId)) &&
-              !('revokedAt' in get(/databases/$(database)/documents/users/$(userId)/devices/$(resource.data.joinedDeviceId)).data)
+              exists(/databases/$(database)/documents/users/$(userId)/devices/$(resource.data.sourceDeviceId)) &&
+              !('revokedAt' in get(/databases/$(database)/documents/users/$(userId)/devices/$(resource.data.sourceDeviceId)).data) &&
+              (
+                !('joinedDeviceId' in resource.data) ||
+                (
+                  exists(/databases/$(database)/documents/users/$(userId)/devices/$(resource.data.joinedDeviceId)) &&
+                  !('revokedAt' in get(/databases/$(database)/documents/users/$(userId)/devices/$(resource.data.joinedDeviceId)).data)
+                )
+              )
             )
           ) &&
           request.resource.data.ownerUid == resource.data.ownerUid &&
