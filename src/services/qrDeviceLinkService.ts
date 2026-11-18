@@ -161,13 +161,26 @@ class QrDeviceLinkService {
     const existingScanner = this.scannerSessions.get(payload.sessionId);
     if (existingScanner) {
       if (
-        existingScanner.ownerUid === uid &&
-        existingScanner.deviceId === deviceId &&
-        existingScanner.expiresAt > Date.now()
+        existingScanner.ownerUid !== uid ||
+        existingScanner.deviceId !== deviceId ||
+        existingScanner.expiresAt <= Date.now()
+      ) {
+        throw new Error('This pairing session is already active on another device identity.');
+      }
+      const [current, existingJoin] = await Promise.all([
+        getDoc(sessionRef(uid, payload.sessionId)),
+        getDoc(messageRef(uid, payload.sessionId, 'join')),
+      ]);
+      if (
+        current.exists() &&
+        current.data().state === 'joined' &&
+        existingJoin.exists() &&
+        existingJoin.data().senderDeviceId === deviceId
       ) {
         return payload.sessionId;
       }
-      throw new Error('This pairing session is already active on another device identity.');
+      this.scannerSessions.delete(payload.sessionId);
+      throw new Error('The previous join attempt was not confirmed. Scan a fresh pairing QR code.');
     }
     const ref = sessionRef(uid, payload.sessionId);
     const snapshot = await getDoc(ref);
@@ -227,7 +240,8 @@ class QrDeviceLinkService {
         transaction.update(ref, { state: 'joined', joinedDeviceId: deviceId, updatedAt: serverTimestamp() });
       });
     } catch (error) {
-      this.scannerSessions.delete(payload.sessionId);
+      // Retain the HPKE state so a later invocation can inspect whether the
+      // transaction committed despite an ambiguous network error.
       throw error;
     }
     return payload.sessionId;
