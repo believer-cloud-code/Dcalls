@@ -200,6 +200,28 @@ test('encrypted device inbox events are append-only and recipient-owned', async 
 });
 
 
+test('device inbox rejects spoofed senders, nonparticipants and revoked recipients', async () => {
+  await assertFails(setDoc(doc(mallory(), 'users/alice/devices/alice-device/inbox/nonparticipant'), {
+    senderUid: 'mallory', chatId: 'chat-1', payload: 'ciphertext',
+    createdAt: serverTimestamp(), protocol: 'matrix-olm-megolm',
+  }));
+
+  await assertFails(setDoc(doc(bob(), 'users/alice/devices/alice-device/inbox/spoofed-sender'), {
+    senderUid: 'alice', chatId: 'chat-1', payload: 'ciphertext',
+    createdAt: serverTimestamp(), protocol: 'matrix-olm-megolm',
+  }));
+
+  await updateDoc(doc(alice(), 'users/alice/devices/alice-device'), {
+    revokedAt: serverTimestamp(), revokedBy: 'alice',
+  });
+
+  await assertFails(setDoc(doc(bob(), 'users/alice/devices/alice-device/inbox/revoked-recipient'), {
+    senderUid: 'bob', chatId: 'chat-1', payload: 'ciphertext',
+    createdAt: serverTimestamp(), protocol: 'matrix-olm-megolm',
+  }));
+});
+
+
 test('QR pairing enforces the complete one-way handshake lifecycle', async () => {
   await env.withSecurityRulesDisabled(async (context) => {
     await setDoc(doc(context.firestore(), 'users/alice/devices/new-device'), {
