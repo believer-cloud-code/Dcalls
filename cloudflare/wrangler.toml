@@ -15,3 +15,9 @@ bucket_name = "dcalls-uploads"
 # wrangler secret put FIREBASE_WEB_API_KEY
 # wrangler secret put DEEPSEEK_API_KEY
 # wrangler secret put OPENROUTER_API_KEY
+
+[[d1_databases]]
+binding = "DEVICE_DB"
+database_name = "dcalls-device-auth"
+database_id = "fc8965b7-01b7-4503-8d55-27e5aceca425"
+migrations_dir = "migrations"
