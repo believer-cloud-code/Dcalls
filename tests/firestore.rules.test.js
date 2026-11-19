@@ -204,6 +204,41 @@ test('QR pairing session creation requires a valid id and active source device',
   }));
 });
 
+test('expired QR pairing sessions cannot be joined', async () => {
+  const sessionId = 'fedcba9876543210fedcba9876543210';
+  await env.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await setDoc(doc(db, 'users/alice/devices/new-device'), {
+      deviceId: 'new-device',
+      deviceKeys: { device_id: 'new-device' },
+    });
+    await setDoc(doc(db, 'users/alice/deviceLinkSessions', sessionId), {
+      ownerUid: 'alice',
+      sourceDeviceId: 'alice-device',
+      hpkePublicKey: 'A'.repeat(48),
+      state: 'waiting',
+      expiresAt: Timestamp.fromMillis(Date.now() - 1000),
+      createdAt: Timestamp.fromMillis(Date.now() - 10_000),
+    });
+  });
+
+  const db = alice();
+  const sessionRef = doc(db, 'users/alice/deviceLinkSessions', sessionId);
+  const joinRef = doc(db, 'users/alice/deviceLinkSessions', sessionId, 'messages', 'join');
+  const batch = writeBatch(db);
+  batch.set(joinRef, {
+    senderDeviceId: 'new-device',
+    ciphertext: 'expired-session-join',
+    createdAt: serverTimestamp(),
+  });
+  batch.update(sessionRef, {
+    state: 'joined',
+    joinedDeviceId: 'new-device',
+    updatedAt: serverTimestamp(),
+  });
+  await assertFails(batch.commit());
+});
+
 test('a revoked device cannot create a new QR pairing session', async () => {
   await updateDoc(doc(alice(), 'users/alice/devices/alice-device'), {
     revokedAt: serverTimestamp(), revokedBy: 'alice',
@@ -508,6 +543,50 @@ test('QR pairing enforces the complete one-way handshake lifecycle', async () =>
     ciphertext: 'encrypted-ack',
     createdAt: serverTimestamp(),
   }));
+
+  const linkedDeviceRef = doc(testDb, 'users/alice/devices/new-device');
+
+  // A device cannot claim linked status without a completed session.
+  const forgedDeviceLink = writeBatch(testDb);
+  forgedDeviceLink.update(linkedDeviceRef, {
+    linkedAt: serverTimestamp(),
+    linkedFromDeviceId: 'mallory-device',
+    linkSessionId: sessionId,
+  });
+  await assertFails(forgedDeviceLink.commit());
+
+  // A session must not be marked complete unless the target device receives
+  // matching link metadata in the same atomic write.
+  const incompleteCompletion = writeBatch(testDb);
+  incompleteCompletion.update(sessionRef, {
+    state: 'completed',
+    completedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+  await assertFails(incompleteCompletion.commit());
+
+  const completionBatch = writeBatch(testDb);
+  completionBatch.update(sessionRef, {
+    state: 'completed',
+    completedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+  completionBatch.update(linkedDeviceRef, {
+    linkedAt: serverTimestamp(),
+    linkedFromDeviceId: 'alice-device',
+    linkSessionId: sessionId,
+  });
+  await assertSucceeds(completionBatch.commit());
+
+  // A completed session is retained as an audit record and cannot be
+  // cancelled or deleted through the client.
+  await assertFails(updateDoc(sessionRef, {
+    state: 'cancelled',
+    joinedDeviceId: 'new-device',
+    verifiedAt: (await getDoc(sessionRef)).data().verifiedAt,
+    updatedAt: serverTimestamp(),
+  }));
+  await assertFails(deleteDoc(sessionRef));
 
   // Message contents are write-once, and verified sessions cannot be
   // cancelled after the secrets bundle has been written.

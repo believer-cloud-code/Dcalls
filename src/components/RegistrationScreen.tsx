@@ -4,6 +4,7 @@ import { ArrowRight, Mail, User as UserIcon, AtSign, Lock, ChevronLeft } from 'l
 import { DcallsIcon } from './DcallsIcon';
 import { auth } from '../firebase';
 import type { NewAccountData } from '../services/authService';
+import { getFriendlyErrorMessage } from '../utils/errorMessages';
 
 interface RegistrationScreenProps {
   onComplete: (data: NewAccountData) => Promise<void>;
@@ -63,7 +64,7 @@ export const RegistrationScreen: React.FC<RegistrationScreenProps> = ({
         photoURL: auth.currentUser?.photoURL ?? null,
       });
     } catch (submitError: any) {
-      setError(submitError?.message || 'Could not complete registration. Please try again.');
+      setError(getFriendlyErrorMessage(submitError, 'Could not complete registration. Please try again.'));
     } finally {
       setLoading(false);
     }

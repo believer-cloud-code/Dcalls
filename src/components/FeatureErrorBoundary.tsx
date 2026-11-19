@@ -1,5 +1,6 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { AlertCircle, RotateCcw } from 'lucide-react';
+import { getFriendlyErrorMessage } from '../utils/errorMessages';
 
 interface Props {
     children: ReactNode;
@@ -38,9 +39,9 @@ export class FeatureErrorBoundary extends Component<Props, State> {
                     <div className="flex items-center gap-3">
                         <AlertCircle className="text-red-500" size={24} />
                         <div className="text-left">
-                            <h3 className="font-semibold text-red-400">{this.props.featureName} Error</h3>
+                            <h3 className="font-semibold text-red-400">{this.props.featureName} couldn't load</h3>
                             <p className="text-xs text-gray-400 mt-1">
-                                {this.state.error?.message || 'An unexpected error occurred'}
+                                {getFriendlyErrorMessage(this.state.error)}
                             </p>
                         </div>
                     </div>

@@ -96,7 +96,7 @@ service cloud.firestore {
           request.resource.data.expiresAt == resource.data.expiresAt &&
           request.resource.data.updatedAt == request.time &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'state', 'joinedDeviceId', 'updatedAt', 'verifiedAt'
+            'state', 'joinedDeviceId', 'updatedAt', 'verifiedAt', 'completedAt'
           ]) &&
           (
             (resource.data.state == 'waiting' &&
@@ -125,10 +125,22 @@ service cloud.firestore {
               request.resource.data.state == 'cancelled' &&
               request.resource.data.joinedDeviceId == resource.data.joinedDeviceId &&
               request.resource.data.verifiedAt == resource.data.verifiedAt &&
-              !exists(/databases/$(database)/documents/users/$(userId)/deviceLinkSessions/$(sessionId)/messages/secrets))
+              !exists(/databases/$(database)/documents/users/$(userId)/deviceLinkSessions/$(sessionId)/messages/secrets)) ||
+            (resource.data.state == 'verified' &&
+              request.resource.data.state == 'completed' &&
+              request.resource.data.joinedDeviceId == resource.data.joinedDeviceId &&
+              request.resource.data.verifiedAt == resource.data.verifiedAt &&
+              request.resource.data.completedAt == request.time &&
+              exists(/databases/$(database)/documents/users/$(userId)/deviceLinkSessions/$(sessionId)/messages/secrets) &&
+              exists(/databases/$(database)/documents/users/$(userId)/deviceLinkSessions/$(sessionId)/messages/secretsAck) &&
+              existsAfter(/databases/$(database)/documents/users/$(userId)/devices/$(resource.data.joinedDeviceId)) &&
+              getAfter(/databases/$(database)/documents/users/$(userId)/devices/$(resource.data.joinedDeviceId)).data.linkedAt == request.time &&
+              getAfter(/databases/$(database)/documents/users/$(userId)/devices/$(resource.data.joinedDeviceId)).data.linkSessionId == sessionId)
           );
+        // Keep verified and completed sessions as audit records.
         allow delete: if isOwner(userId) &&
-          resource.data.state != 'verified';
+          resource.data.state != 'verified' &&
+          resource.data.state != 'completed';
 
         match /messages/{messageId} {
           allow read: if isOwner(userId);
@@ -250,8 +262,22 @@ service cloud.firestore {
           request.resource.data.deviceId == resource.data.deviceId &&
           request.resource.data.deviceKeys == resource.data.deviceKeys &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'updatedAt', 'fallbackKeys', 'protocol', 'protocolVersion', 'revokedAt', 'revokedBy'
+            'updatedAt', 'fallbackKeys', 'protocol', 'protocolVersion', 'revokedAt', 'revokedBy',
+            'linkedAt', 'linkedFromDeviceId', 'linkSessionId'
           ]) &&
+          (
+            !request.resource.data.diff(resource.data).affectedKeys().hasAny(['linkedAt', 'linkedFromDeviceId', 'linkSessionId']) ||
+            (
+              request.resource.data.linkedAt == request.time &&
+              request.resource.data.linkedFromDeviceId is string &&
+              request.resource.data.linkSessionId is string &&
+              existsAfter(/databases/$(database)/documents/users/$(userId)/deviceLinkSessions/$(request.resource.data.linkSessionId)) &&
+              getAfter(/databases/$(database)/documents/users/$(userId)/deviceLinkSessions/$(request.resource.data.linkSessionId)).data.state == 'completed' &&
+              getAfter(/databases/$(database)/documents/users/$(userId)/deviceLinkSessions/$(request.resource.data.linkSessionId)).data.joinedDeviceId == deviceId &&
+              getAfter(/databases/$(database)/documents/users/$(userId)/deviceLinkSessions/$(request.resource.data.linkSessionId)).data.sourceDeviceId == request.resource.data.linkedFromDeviceId &&
+              getAfter(/databases/$(database)/documents/users/$(userId)/deviceLinkSessions/$(request.resource.data.linkSessionId)).data.completedAt == request.time
+            )
+          ) &&
           // Once revoked, the device record is immutable. Only an active
           // device may update public key metadata or transition to revoked.
           !('revokedAt' in resource.data) &&

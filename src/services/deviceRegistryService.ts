@@ -429,8 +429,11 @@ export const deviceRegistryService = {
     deviceKeys?: Record<string, unknown>;
     revokedAt?: unknown;
     updatedAt?: unknown;
+    linkedAt?: unknown;
+    linkedFromDeviceId?: string;
+    linkSessionId?: string;
   }>> {
-    if (auth.currentUser?.uid !== ownerUid) throw new Error('Only the account owner can list registered devices.');
+    if (auth.currentUser?.uid !== ownerUid) throw new Error('Only the signed-in account owner can view linked devices.');
     const snapshot = await getDocs(collection(db, 'users', ownerUid, 'devices'));
     return snapshot.docs.map((device) => ({
       id: device.id,
@@ -445,7 +448,7 @@ export const deviceRegistryService = {
 
   async revokeDevice(ownerUid: string, deviceId: string): Promise<void> {
     if (!ownerUid || !deviceId || auth.currentUser?.uid !== ownerUid) {
-      throw new Error('Only the signed-in account owner can revoke a device.');
+      throw new Error('Only the signed-in account owner can remove device access.');
     }
     const ref = doc(db, 'users', ownerUid, 'devices', deviceId);
     const snapshot = await getDoc(ref);

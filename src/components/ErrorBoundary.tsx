@@ -1,5 +1,6 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
+import { getFriendlyErrorMessage } from '../utils/errorMessages';
 
 interface Props {
   children: ReactNode;
@@ -45,16 +46,9 @@ export class ErrorBoundary extends Component<Props, State> {
             <div className="space-y-2">
               <h1 className="text-2xl font-bold text-white tracking-tight">Something went wrong</h1>
               <p className="text-gray-400 text-sm leading-relaxed">
-                The application encountered an unexpected error. We've been notified and are working on it.
+                {getFriendlyErrorMessage(this.state.error, 'Dcalls could not open this screen. Reload the app and try again.')}
               </p>
             </div>
-            {this.state.error && (
-              <div className="p-4 bg-white/5 border border-white/10 rounded-2xl text-left overflow-auto max-h-40">
-                <code className="text-[10px] text-red-400 font-mono break-all">
-                  {this.state.error.toString()}
-                </code>
-              </div>
-            )}
             <button
               onClick={this.handleReset}
               className="flex items-center justify-center gap-3 w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold uppercase tracking-widest text-[10px] shadow-xl shadow-indigo-600/20 hover:bg-indigo-500 transition-colors"

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import { ChevronLeft, Lock, Mail, LogIn } from 'lucide-react';
+import { getFriendlyErrorMessage } from '../utils/errorMessages';
 
 interface SignInScreenProps {
   onSignIn: (email: string, password: string) => Promise<void>;
@@ -20,7 +21,7 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ onSignIn, onResetPas
     setError('');
     setMessage('');
     try { await action(); } catch (err: any) {
-      setError(err?.message || 'The request could not be completed.');
+      setError(getFriendlyErrorMessage(err, 'The request could not be completed. Please try again.'));
     } finally { setLoading(false); }
   };
 

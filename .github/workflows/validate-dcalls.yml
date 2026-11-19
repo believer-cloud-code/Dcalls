@@ -4,9 +4,11 @@ on:
   push:
     branches:
       - feature-username-authentication
+      - feature/device-linking-and-error-ux
   pull_request:
     branches:
       - master
+      - feature-username-authentication
   workflow_dispatch:
 
 permissions:
@@ -29,6 +31,8 @@ jobs:
         run: |
           npm audit --json > /tmp/dcalls-npm-audit.json || true
           node -e "const fs=require('node:fs'); let a={}; try { a=JSON.parse(fs.readFileSync('/tmp/dcalls-npm-audit.json','utf8')); } catch { console.log('npm audit report unavailable'); process.exit(0); } console.log('Dependency vulnerability totals:', JSON.stringify(a.metadata?.vulnerabilities ?? {})); for (const [name, v] of Object.entries(a.vulnerabilities ?? {})) { const via=(v.via ?? []).map(x => typeof x === 'string' ? x : (x.title ?? x.name ?? 'advisory')).join('; '); console.log([v.severity.toUpperCase(), name, v.isDirect ? 'direct' : 'transitive', 'range='+v.range, 'fix='+JSON.stringify(v.fixAvailable), 'via='+via].join(' | ')); }"
+      - name: Test user-facing error messages
+        run: npm run test:unit
       - name: Install Firebase rules test tools
         run: npm install --no-save --package-lock=false @firebase/rules-unit-testing firebase-tools
       - name: Test Firestore security rules in emulator

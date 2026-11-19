@@ -11,6 +11,7 @@ import { doc, updateDoc } from 'firebase/firestore';
 import { LANGUAGE_NAMES } from '../config/languages';
 import { requestNotificationPermission } from '../services/notificationService';
 import { DeviceLinkingPanel } from './DeviceLinkingPanel';
+import { getFriendlyErrorMessage } from '../utils/errorMessages';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -72,6 +73,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ user }) => {
   const [status, setStatus] = useState('Available');
   const [isSaving, setIsSaving] = useState(false);
   const [activeSection, setActiveSection] = useState<string | null>(null);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
 
   // Settings states
   const [notificationsEnabled, setNotificationsEnabled] = useState((user as any)?.settings?.notifications ?? true);
@@ -95,8 +97,10 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ user }) => {
       await updateDoc(doc(db, 'users', user.uid), {
         [`settings.${key}`]: value
       });
+      setSettingsError(null);
     } catch (error) {
       console.error(`Failed to update setting ${key}`, error);
+      setSettingsError(getFriendlyErrorMessage(error, 'Your setting could not be saved. Please try again.'));
     }
   };
 
@@ -112,6 +116,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ user }) => {
       setIsEditingProfile(false);
     } catch (error) {
       console.error("Failed to update profile", error);
+      setSettingsError(getFriendlyErrorMessage(error, 'Your profile could not be saved. Please try again.'));
     } finally {
       setIsSaving(false);
     }
@@ -123,7 +128,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ user }) => {
     { icon: <Bell size={20} />, label: "Notifications", desc: "Message, group & call tones" },
     { icon: <Moon size={20} />, label: "Appearance", desc: "Dark mode, wallpapers" },
     { icon: <Shield size={20} />, label: "Privacy", desc: "Last seen, profile photo" },
-    { icon: <Link2 size={20} />, label: "Linked Devices", desc: "Pair a new device securely" },
+    { icon: <Link2 size={20} />, label: "Linked Devices", desc: "View, link and remove your devices" },
     { icon: <DcallsIcon size={20} />, label: "Damai AI", desc: "Persona, interaction style, commands" },
     { icon: <HelpCircle size={20} />, label: "Help", desc: "Help center, contact us, privacy policy" },
   ];
@@ -219,6 +224,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ user }) => {
                   </div>
                 </div>
 
+                {settingsError && <p role="alert" className="text-xs text-red-300 bg-red-500/10 rounded-xl p-3">{settingsError}</p>}
                 <button
                   onClick={handleSaveProfile}
                   disabled={isSaving}
@@ -247,7 +253,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ user }) => {
             initial={{ opacity: 0, x: -20 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ delay: i * 0.05 }}
-            onClick={() => setActiveSection(item.label)}
+            onClick={() => { setSettingsError(null); setActiveSection(item.label); }}
             className="w-full flex items-center gap-4 px-6 py-4 hover:bg-white/5 transition-colors group"
           >
             <div className="p-2.5 rounded-xl bg-white/5 text-gray-400 group-hover:text-white transition-colors">
@@ -292,6 +298,11 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ user }) => {
             </div>
 
             <div className="flex-1 overflow-y-auto p-6 space-y-8">
+              {settingsError && (
+                <div role="alert" className="rounded-xl border border-red-500/20 bg-red-500/5 p-3 text-xs text-red-300">
+                  {settingsError}
+                </div>
+              )}
               {activeSection === "Account" && (
                 <div className="space-y-6">
                   <SettingItem

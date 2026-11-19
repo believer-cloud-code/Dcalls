@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertCircle, Camera, CheckCircle2, Copy, Link2, Loader2, RefreshCw, ShieldCheck, Smartphone, XCircle } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { matrixCryptoService } from '../services/matrixCryptoService';
 import { qrDeviceLinkService } from '../services/qrDeviceLinkService';
 import { deviceRegistryService } from '../services/deviceRegistryService';
+import { getFriendlyErrorMessage } from '../utils/errorMessages';
 
 interface DeviceLinkingPanelProps {
   userId: string;
@@ -37,15 +38,16 @@ export const DeviceLinkingPanel: React.FC<DeviceLinkingPanelProps> = ({ userId }
   const [scannerCompleted, setScannerCompleted] = useState(false);
   const [sourceVerified, setSourceVerified] = useState(false);
   const [scannerCodeConfirmed, setScannerCodeConfirmed] = useState(false);
-  const [registeredDevices, setRegisteredDevices] = useState<Array<{ id: string; deviceKeys?: Record<string, unknown>; revokedAt?: unknown; updatedAt?: unknown }>>([]);
+  const [registeredDevices, setRegisteredDevices] = useState<Array<{ id: string; deviceKeys?: Record<string, unknown>; revokedAt?: unknown; updatedAt?: unknown; linkedAt?: unknown; linkedFromDeviceId?: string; linkSessionId?: string }>>([]);
   const [pendingRevocationId, setPendingRevocationId] = useState<string | null>(null);
+  const [linkComplete, setLinkComplete] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
     let active = true;
     matrixCryptoService.getDeviceId(userId)
       .then((id) => { if (active) setDeviceId(id); })
-      .catch((reason) => { if (active) setError(reason instanceof Error ? reason.message : String(reason)); });
+      .catch((reason) => { if (active) setError(getFriendlyErrorMessage(reason, 'Dcalls could not load this device identity. Refresh and try again.')); });
     return () => { active = false; };
   }, [userId]);
 
@@ -78,7 +80,7 @@ export const DeviceLinkingPanel: React.FC<DeviceLinkingPanelProps> = ({ userId }
           return;
         }
       } catch (reason) {
-        setError(reason instanceof Error ? reason.message : 'Unable to read the camera image.');
+        setError(getFriendlyErrorMessage(reason, 'Dcalls could not read the QR code. Try again or paste the QR text.'));
       }
       if (active) frame = requestAnimationFrame(scan);
     };
@@ -97,7 +99,7 @@ export const DeviceLinkingPanel: React.FC<DeviceLinkingPanelProps> = ({ userId }
         }
       })
       .catch((reason) => {
-        setError(reason instanceof Error ? reason.message : 'Camera permission was denied.');
+        setError(getFriendlyErrorMessage(reason, 'Dcalls could not access your camera. Allow camera access or paste the QR text.'));
         setCameraActive(false);
       });
 
@@ -119,7 +121,7 @@ export const DeviceLinkingPanel: React.FC<DeviceLinkingPanelProps> = ({ userId }
     let active = true;
     deviceRegistryService.listAllDevices(userId)
       .then((devices) => { if (active) setRegisteredDevices(devices); })
-      .catch((reason) => { if (active) setError(reason instanceof Error ? reason.message : String(reason)); });
+      .catch((reason) => { if (active) setError(getFriendlyErrorMessage(reason, 'Dcalls could not load your devices. Refresh and try again.')); });
     return () => { active = false; };
   }, [userId, deviceId]);
 
@@ -135,7 +137,7 @@ export const DeviceLinkingPanel: React.FC<DeviceLinkingPanelProps> = ({ userId }
     try {
       await action();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      setError(getFriendlyErrorMessage(reason, 'Dcalls could not complete that action. Please try again.'));
     } finally {
       setBusy(false);
     }
@@ -155,7 +157,8 @@ export const DeviceLinkingPanel: React.FC<DeviceLinkingPanelProps> = ({ userId }
     setSourceAccepted(false);
     setJoinInfo(null);
     setSourceVerified(false);
-    setStatus('QR ready. Scan it using your new Dcalls device.');
+    setLinkComplete(false);
+    setStatus('Pairing code ready. Scan it using your new Dcalls device.');
   });
 
   const inspectJoin = () => run(async () => {
@@ -178,7 +181,7 @@ export const DeviceLinkingPanel: React.FC<DeviceLinkingPanelProps> = ({ userId }
     const code = await qrDeviceLinkService.verifySourceCompletion(userId, sessionId);
     setVerificationCode(code);
     setSourceVerified(true);
-    setStatus('HPKE channel verified. Secret and history transfer is the next stage.');
+    setStatus('Secure channel verified. Account signing-key transfer is ready.');
   });
 
   const joinQr = () => run(async () => {
@@ -186,6 +189,8 @@ export const DeviceLinkingPanel: React.FC<DeviceLinkingPanelProps> = ({ userId }
     await matrixCryptoService.publishInitialDeviceKeys(userId);
     const joined = await qrDeviceLinkService.joinSession(userId, deviceId, qrInput.trim());
     setSessionId(joined);
+    setLinkComplete(false);
+    setQrInput('');
     setVerificationCode('');
     setScannerCompleted(false);
     setScannerCodeConfirmed(false);
@@ -217,22 +222,14 @@ export const DeviceLinkingPanel: React.FC<DeviceLinkingPanelProps> = ({ userId }
     await qrDeviceLinkService.acknowledgeSecretsBundle(userId, sessionId);
     await refreshRegisteredDevices();
     setBundleReceived(true);
-    setStatus('Account signing keys imported. This device has signed its own device identity.');
+    setStatus('Account signing keys imported. Waiting for the existing device to confirm that linking is complete.');
   });
 
-  const checkAccountKeysReceipt = () => run(async () => {
-    if (!sessionId) throw new Error('No pairing session is active.');
-    const received = await qrDeviceLinkService.verifySecretsBundleReceipt(userId, sessionId);
-    if (!received) throw new Error('The new device has not confirmed the key import yet.');
-    setReceiptVerified(true);
-    setStatus('New device confirmed account signing-key import and device signing.');
-  });
-
-  const cancel = () => run(async () => {
-    if (sessionId) await qrDeviceLinkService.cancelSession(userId, sessionId);
+  const clearPairingState = useCallback((message: string, completed = false) => {
     setSessionId('');
     setQrPayload('');
     setExpiresAt(null);
+    setQrInput('');
     setVerificationCode('');
     setBundleSent(false);
     setBundleReceived(false);
@@ -242,7 +239,47 @@ export const DeviceLinkingPanel: React.FC<DeviceLinkingPanelProps> = ({ userId }
     setScannerCompleted(false);
     setScannerCodeConfirmed(false);
     setSourceVerified(false);
-    setStatus('Pairing cancelled.');
+    setCameraActive(false);
+    setLinkComplete(completed);
+    setStatus(message);
+  }, []);
+
+  const checkAccountKeysReceipt = () => run(async () => {
+    if (!sessionId) throw new Error('No pairing session is active.');
+    const received = await qrDeviceLinkService.verifySecretsBundleReceipt(userId, sessionId);
+    if (!received) throw new Error('The new device has not confirmed the key import yet.');
+    await qrDeviceLinkService.completeSecretsTransfer(userId, sessionId);
+    await refreshRegisteredDevices();
+    clearPairingState('Device linked successfully. The new device verified and acknowledged the encrypted account-key transfer.', true);
+  });
+
+  const confirmLinkCompletion = () => run(async () => {
+    if (!sessionId) throw new Error('There is no active pairing session to check.');
+    const completed = await qrDeviceLinkService.confirmCompletedSession(userId, sessionId);
+    if (!completed) throw new Error('The existing device has not finished confirming this link yet. Keep both devices connected and check again.');
+    await refreshRegisteredDevices();
+    clearPairingState('This device is now linked. Your account signing keys were imported and the existing device confirmed the transfer.', true);
+  });
+
+  useEffect(() => {
+    if (!sessionId || !bundleReceived || mode !== 'scan' || linkComplete) return;
+    return qrDeviceLinkService.watchForCompletion(
+      userId,
+      sessionId,
+      async () => {
+        const devices = await deviceRegistryService.listAllDevices(userId);
+        const completed = await qrDeviceLinkService.confirmCompletedSession(userId, sessionId);
+        if (!completed) return;
+        setRegisteredDevices(devices);
+        clearPairingState('This device is now linked. Your account signing keys were imported and the existing device confirmed the transfer.', true);
+      },
+      (reason) => setError(getFriendlyErrorMessage(reason, 'Dcalls could not confirm that the device link finished. Check again in a moment.')),
+    );
+  }, [userId, sessionId, bundleReceived, mode, linkComplete, clearPairingState]);
+
+  const cancel = () => run(async () => {
+    if (sessionId) await qrDeviceLinkService.cancelSession(userId, sessionId);
+    clearPairingState('Pairing cancelled.');
   });
 
   return (
@@ -372,36 +409,41 @@ export const DeviceLinkingPanel: React.FC<DeviceLinkingPanelProps> = ({ userId }
                   Receive account signing keys
                 </button>
               )}
+              {bundleReceived && !linkComplete && (
+                <button disabled={busy} onClick={confirmLinkCompletion} className="w-full rounded-xl bg-emerald-600 py-3 text-xs font-bold disabled:opacity-50">
+                  Check linking status
+                </button>
+              )}
             </div>
           )}
         </div>
       )}
 
-      <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 flex items-start gap-2">
-        {status.includes('verified') || status.includes('established') ? <CheckCircle2 size={16} className="text-emerald-400 mt-0.5" /> : <Smartphone size={16} className="text-gray-400 mt-0.5" />}
+      <div className={`rounded-xl border p-3 flex items-start gap-2 ${linkComplete ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-white/10 bg-white/[0.03]'}`}>
+        {linkComplete || status.includes('verified') || status.includes('established') ? <CheckCircle2 size={16} className="text-emerald-400 mt-0.5" /> : <Smartphone size={16} className="text-gray-400 mt-0.5" />}
         <div className="flex-1">
-          <p className="text-xs font-semibold">{status}</p>
-          <p className="text-[10px] text-gray-500 mt-1">After both devices confirm the matching code, account cross-signing keys can be transferred through the encrypted channel. Message history and device trust transfer are not included.</p>
+          <p className="text-xs font-semibold" role="status" aria-live="polite">{status}</p>
+          <p className="text-[10px] text-gray-500 mt-1">A device is marked as linked only after the encrypted account-key transfer is acknowledged by the new device and confirmed by the existing device. Message history is not transferred.</p>
         </div>
       </div>
 
       {error && (
         <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-3 flex items-start gap-2 text-red-300">
           <AlertCircle size={15} className="mt-0.5 shrink-0" />
-          <p className="text-xs break-words">{error}</p>
+          <p className="text-xs break-words" role="alert">{error}</p>
         </div>
       )}
 
       <div className="space-y-3">
         <p className="text-[10px] leading-relaxed text-gray-500">
-          Revoking a device blocks future key distribution and rotates room keys when active senders next send. It cannot erase messages or encryption keys already stored on that device.
+          Removing a device blocks future key distribution. It cannot erase messages or encryption keys already stored on that device.
         </p>
         <div className="flex items-center justify-between">
-          <h4 className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Registered devices</h4>
+          <h4 className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Linked Devices</h4>
           <button disabled={busy} onClick={() => run(refreshRegisteredDevices)} className="text-[10px] text-indigo-300">Refresh</button>
         </div>
         {registeredDevices.length === 0 ? (
-          <p className="text-xs text-gray-500">No registered devices found.</p>
+          <p className="text-xs text-gray-500">No devices are listed for this account yet.</p>
         ) : registeredDevices.map((device) => {
           const unsigned = device.deviceKeys?.unsigned as Record<string, unknown> | undefined;
           const label = typeof unsigned?.device_display_name === 'string'
@@ -409,21 +451,23 @@ export const DeviceLinkingPanel: React.FC<DeviceLinkingPanelProps> = ({ userId }
             : device.id === deviceId ? 'This device' : 'Dcalls device';
           const revoked = Boolean(device.revokedAt);
           const current = device.id === deviceId;
+          const linked = Boolean(device.linkedAt);
+          const deviceStatus = revoked ? 'Access removed' : current ? 'This device' : linked ? 'Linked' : 'Status not confirmed';
           return (
             <div key={device.id} className="rounded-xl border border-white/10 bg-white/[0.03] p-3 flex items-center gap-3">
               <Smartphone size={17} className={revoked ? 'text-gray-600' : 'text-indigo-300'} />
               <div className="min-w-0 flex-1">
                 <p className="text-xs font-semibold">{label}{current ? ' · Current' : ''}</p>
                 <p className="text-[9px] text-gray-500 truncate">{device.id}</p>
-                {revoked && <p className="text-[9px] text-red-300">Revoked</p>}
+                <p className={`text-[9px] ${revoked ? 'text-red-300' : linked || current ? 'text-emerald-300' : 'text-gray-500'}`}>{deviceStatus}</p>
               </div>
               {!current && !revoked && (
                 pendingRevocationId === device.id ? (
                   <div className="flex flex-col items-end gap-2">
-                    <span className="text-[9px] text-red-300">This cannot be undone</span>
+                    <span className="text-[9px] text-red-300">This cannot be undone. The device may keep data already stored on it.</span>
                     <div className="flex items-center gap-2">
                       <button disabled={busy} onClick={() => revokeDevice(device.id)} className="text-[10px] font-bold text-red-300 disabled:opacity-50">
-                        Confirm revoke
+                        Remove access
                       </button>
                       <button disabled={busy} onClick={() => setPendingRevocationId(null)} className="text-[10px] text-gray-400 disabled:opacity-50">
                         Cancel
@@ -432,7 +476,7 @@ export const DeviceLinkingPanel: React.FC<DeviceLinkingPanelProps> = ({ userId }
                   </div>
                 ) : (
                   <button disabled={busy} onClick={() => setPendingRevocationId(device.id)} className="text-[10px] font-semibold text-red-300 disabled:opacity-50">
-                    Revoke
+                    Remove access
                   </button>
                 )
               )}

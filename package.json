@@ -20,7 +20,8 @@
     "build:desktop": "npm run build && npm run build:electron",
     "cap:sync": "npm run build && npx cap sync",
     "cap:open:android": "npx cap open android",
-    "android:build": "npm run build && npx cap sync && npx cap open android"
+    "android:build": "npm run build && npx cap sync && npx cap open android",
+    "test:unit": "tsx --test tests/errorMessages.test.js"
   },
   "build": {
     "appId": "com.dcalls.app",

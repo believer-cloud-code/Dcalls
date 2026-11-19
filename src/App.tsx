@@ -7,6 +7,7 @@ import React, { useState, useEffect } from 'react';
 import { doc, getDoc, getDocs, setDoc, collection, query, where, onSnapshot, orderBy, addDoc, serverTimestamp, limit, updateDoc } from 'firebase/firestore';
 import { db, auth } from './firebase';
 import { handleFirestoreError, OperationType } from './utils/firestoreErrorHandler';
+import { getFriendlyErrorMessage } from './utils/errorMessages';
 import { databaseService } from './services/databaseService';
 import { Layout } from './components/Layout';
 import { ChatScreen } from './components/ChatScreen';
@@ -35,6 +36,7 @@ import { openMarketing } from './config/urls';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { startForegroundMessageListener } from './services/notificationService';
 import { FeatureErrorBoundary } from './components/FeatureErrorBoundary';
+import { ErrorBanner } from './components/ErrorBanner';
 import { saveCallHistory } from './services/callHistoryService';
 import { matrixCryptoService } from './services/matrixCryptoService';
 
@@ -55,8 +57,24 @@ export default function App() {
   const [chats, setChats] = useState<Chat[]>([]);
   const [calls, setCalls] = useState<CallRecord[]>([]);
   const [loginError, setLoginError] = useState<string | null>(null);
+  const [globalError, setGlobalError] = useState<string | null>(null);
   const [showRegistration, setShowRegistration] = useState(false);
   const [showSignIn, setShowSignIn] = useState(false);
+
+  useEffect(() => {
+    const handleWindowError = (event: ErrorEvent) => {
+      setGlobalError(getFriendlyErrorMessage(event.error, 'Dcalls encountered an unexpected error. Please try again.'));
+    };
+    const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+      setGlobalError(getFriendlyErrorMessage(event.reason, 'Dcalls could not complete that action. Please try again.'));
+    };
+    window.addEventListener('error', handleWindowError);
+    window.addEventListener('unhandledrejection', handleUnhandledRejection);
+    return () => {
+      window.removeEventListener('error', handleWindowError);
+      window.removeEventListener('unhandledrejection', handleUnhandledRejection);
+    };
+  }, []);
 
   useEffect(() => {
     const handleOnline = () => setIsOffline(false);
@@ -375,7 +393,7 @@ export default function App() {
     } catch (error: any) {
       console.error("Google login failed", error);
       if (error.message?.includes('Redirecting')) return;
-      setLoginError(error.message || 'Google sign-in failed. Please try again.');
+      setLoginError(getFriendlyErrorMessage(error, 'Google sign-in failed. Please try again.'));
     } finally {
       setAuthActionInProgress(false);
     }
@@ -402,14 +420,14 @@ export default function App() {
     try {
       const contactId = await resolveContactUid(contact, abortController.signal);
       if (!contactId) {
-        console.error('Cannot call: contact is not registered on Dcalls');
+        setGlobalError('This contact could not be found on Dcalls. Check the contact details and try again.');
         return;
       }
       if (abortController.signal.aborted) return;
 
       // Match WhatsApp's self-call prevention: never open a call with this account.
       if (!auth.currentUser || contactId === auth.currentUser.uid) {
-        console.warn('[Call] Blocked attempt to call the currently signed-in user.');
+        setGlobalError('You cannot start a call with your own account.');
         return;
       }
 
@@ -423,6 +441,7 @@ export default function App() {
     } catch (error) {
       if (!abortController.signal.aborted) {
         console.error('Error starting call:', error);
+        setGlobalError(getFriendlyErrorMessage(error, 'The call could not be started. Check your connection and try again.'));
       }
     }
     return () => abortController.abort();
@@ -434,7 +453,10 @@ export default function App() {
 
     try {
       const partnerUid = await resolveContactUid(contact, abortController.signal);
-      if (!partnerUid) return;
+      if (!partnerUid) {
+        setGlobalError('This contact could not be found on Dcalls. Check the username and try again.');
+        return;
+      }
       if (abortController.signal.aborted) return;
 
       // Check if chat already exists
@@ -461,6 +483,7 @@ export default function App() {
     } catch (error) {
       if (!abortController.signal.aborted) {
         console.error("Error creating chat:", error);
+        setGlobalError(getFriendlyErrorMessage(error, 'The conversation could not be opened. Please try again.'));
       }
     }
     return () => abortController.abort();
@@ -642,6 +665,7 @@ export default function App() {
 
   return (
     <>
+      <ErrorBanner message={globalError} onClose={() => setGlobalError(null)} />
       <FeatureErrorBoundary featureName="Layout">
         <Layout
           activeTab={activeTab}
@@ -750,6 +774,7 @@ export default function App() {
                       });
                     } catch (err) {
                       console.error('Accept click failed:', err);
+                      setGlobalError(getFriendlyErrorMessage(err, 'The call could not be accepted. Check your microphone and camera permissions.'));
                     }
                   }}
                   className="w-16 h-16 bg-emerald-500 rounded-full flex items-center justify-center text-white shadow-xl shadow-emerald-500/20 active:scale-90 transition-all"

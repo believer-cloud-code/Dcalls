@@ -1,4 +1,5 @@
 import { auth } from '../firebase';
+import { getFriendlyErrorMessage } from './errorMessages';
 
 export enum OperationType {
   CREATE = 'create',
@@ -10,51 +11,18 @@ export enum OperationType {
 }
 
 export interface FirestoreErrorInfo {
-  error: string;
+  code?: string;
   operationType: OperationType;
   path: string | null;
-  authInfo: {
-    userId: string | undefined;
-    email: string | null | undefined;
-    emailVerified: boolean | undefined;
-    isAnonymous: boolean | undefined;
-    tenantId: string | null | undefined;
-    providerInfo: {
-      providerId: string;
-      displayName: string | null;
-      email: string | null;
-      photoUrl: string | null;
-    }[];
-  }
 }
 
-export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
-  const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
-    authInfo: {
-      userId: auth.currentUser?.uid,
-      email: auth.currentUser?.email,
-      emailVerified: auth.currentUser?.emailVerified,
-      isAnonymous: auth.currentUser?.isAnonymous,
-      tenantId: auth.currentUser?.tenantId,
-      providerInfo: auth.currentUser?.providerData.map(provider => ({
-        providerId: provider.providerId,
-        displayName: provider.displayName,
-        email: provider.email,
-        photoUrl: provider.photoURL
-      })) || []
-    },
+/** Log non-sensitive diagnostics and throw a safe message for UI callers. */
+export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null): never {
+  const code = (error as { code?: unknown } | null)?.code;
+  console.error('[Firestore operation failed]', {
+    code: typeof code === 'string' ? code : 'unknown',
     operationType,
-    path
-  };
-  
-  const errorString = JSON.stringify(errInfo);
-  console.error('Firestore Error: ', errorString);
-  
-  // If it's a "client is offline" error, we want to make it very clear to the user
-  if (errInfo.error.includes('the client is offline')) {
-    throw new Error(`DATABASE_OFFLINE: ${errorString}`);
-  }
-  
-  throw new Error(errorString);
+    signedIn: Boolean(auth.currentUser),
+  });
+  throw new Error(getFriendlyErrorMessage(error));
 }
